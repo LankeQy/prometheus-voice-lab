@@ -1,15 +1,15 @@
 ---
-title: Prometheus Super-Flagship Voice Lab
-emoji: 🛰️
-colorFrom: green
-colorTo: pink
-sdk: docker
-app_port: 7860
+title: Prometheus Flagship Voice Lab
+emoji: 🚀
+colorFrom: yellow
+colorTo: red
+sdk: gradio
+app_file: app.py
 ---
 
 # 🚀 普罗米修斯旗舰声音实验室
 
-这是一个专业的在线声音克隆工具。
+这是一个专业的在线声音克隆工具，您可以在这里生产、并即时测试用于您 AI 大脑的任何声音。
 
 ## ✨ 核心功能
 
@@ -23,5 +23,5 @@ app_port: 7860
 
 ## ⚠️ 注意
 
--   为了获得最佳克隆效果，请确保您提供的音频**干净、清晰、无背景噪音**。
--   首次启动应用时，需要下载多个模型，可能需要等待 **2-5 分钟**。请耐心等待。
+-   为了获得最佳克隆效果，请确保您提供的音频**干净、清晰、无背景噪音**，时长建议在 **5-30秒**。
+-   首次启动应用时，需要下载模型，可能需要等待 **1-3 分钟**。
