@@ -1,7 +1,7 @@
-# "语法修正版" Dockerfile - 不再有任何愚蠢的错误
-FROM python:3.10
 
-WORKDIR /app
+FROM python:3.10 as builder
+
+WORKDIR /install
 
 # 1. 安装基础“施工工具”
 RUN apt-get update && apt-get install -y \
@@ -11,11 +11,14 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. 安装PyTorch 和所有依赖
-# 我们在一个 RUN 命令中，完成所有事情。
-RUN pip install --upgrade pip && \
+# 2. 升级 pip
+RUN pip install --upgrade pip
+
+# 3. 将所有 AI 库安装到一个临时的虚拟环境中
+# 这是最关键的一步，它将所有复杂的依赖解析和编译，都隔离在这一级
+RUN python -m venv /install/venv && \
+    . /install/venv/bin/activate && \
     pip install --no-cache-dir \
-        # 所有包都在这一个 pip install 命令中，作为它的参数
         torch==2.1.0 \
         torchaudio==2.1.0 \
         --index-url https://download.pytorch.org/whl/cpu \
@@ -28,8 +31,19 @@ RUN pip install --upgrade pip && \
         ffmpeg-python \
         pyannote.audio
 
-# 3. 复制所有应用代码
-COPY . .
+
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# 1. 只安装运行所必需的系统库
+RUN apt-get update && apt-get install -y ffmpeg libsndfile1 && rm -rf /var/lib/apt/lists/*
+
+# 2. 复制已经安装好的所有 Python 库
+COPY --from=builder /install/venv /usr/local
+
+# 3. 复制我们的应用代码
+COPY app.py .
 
 # 4. 设置环境变量
 ENV HF_TOKEN=$HF_TOKEN
@@ -37,5 +51,5 @@ ENV HF_TOKEN=$HF_TOKEN
 # 5. 暴露端口
 EXPOSE 7860
 
-# 6. 回归最可靠的 Python 启动方式
+# 6. 启动应用
 CMD ["python", "app.py"]
