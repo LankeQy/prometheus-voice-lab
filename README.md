@@ -1,14 +1,27 @@
 ---
-title: Prometheus Voice Lab
-emoji: 💻
-colorFrom: indigo
-colorTo: indigo
+title: Prometheus Flagship Voice Lab
+emoji: 🚀
+colorFrom: yellow
+colorTo: red
 sdk: gradio
-sdk_version: 5.49.1
 app_file: app.py
-pinned: false
-license: mit
-short_description: 转换声纹
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+# 🚀 普罗米修斯旗舰声音实验室
+
+这是一个专业的在线声音克隆工具。
+
+## ✨ 核心功能
+
+1.  **多种输入方式**:
+    -   **上传文件**: 支持 WAV, MP3, M4A 等多种格式。
+    -   **视频平台链接**: 直接粘贴来自 YouTube, Bilibili, 抖音等网站的 URL 即可提取音频。
+    -   **麦克风录制**: 实时录制您的声音。
+2.  **智能后台处理**: 所有音频都会被自动转换为 `16kHz`、`单声道` 的 AI 标准格式。
+3.  **即时试听**: 在生成声纹后，您可以立即输入文本，试听克隆后的声音效果。
+4.  **一键下载**: 满意后，一键下载可用于您主项目的 `.pt` 声纹文件。
+
+## ⚠️ 注意
+
+-   为了获得最佳克隆效果，请确保您提供的音频**干净、清晰、无背景噪音**。
+-   首次启动应用时，需要下载多个模型，可能需要等待 **2-5 分钟**。请耐心等待。

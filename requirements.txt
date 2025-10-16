@@ -1,0 +1,8 @@
+torch==2.9.0
+torchaudio==2.9.0
+speechbrain==1.0.3
+gradio
+yt-dlp
+ffmpeg-python
+transformers
+pyannote.audio
