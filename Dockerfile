@@ -1,3 +1,4 @@
+# "语法修正版" Dockerfile - 不再有任何愚蠢的错误
 FROM python:3.10
 
 WORKDIR /app
@@ -10,12 +11,14 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. 安装必要的库
+# 2. 安装PyTorch 和所有依赖
+# 我们在一个 RUN 命令中，完成所有事情。
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir \
-        # 第一部分：从 PyTorch 官方源头，安装一个保证互相兼容的全家桶
-        torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu && \
-        # 第二部分：安装所有其他我们需要的库
+        # 所有包都在这一个 pip install 命令中，作为它的参数
+        torch==2.1.0 \
+        torchaudio==2.1.0 \
+        --index-url https://download.pytorch.org/whl/cpu \
         gradio \
         transformers>=4.30.0 \
         speechbrain==1.0.3 \
