@@ -1,14 +1,23 @@
-# 使用一个标准的 Python 基础镜像
+# "战地加固版" Dockerfile
 FROM python:3.10-slim
 
 WORKDIR /app
 
-# 1. 更新包管理器并安装基础工具
-RUN apt-get update && apt-get install -y git ffmpeg && rm -rf /var/lib/apt/lists/*
+# 1.
+# build-essential: 包含了 C/C++ 编译器、make 等所有编译源代码所需的工具。
+# libsndfile1: 某些音频库在底层需要的共享库。
+RUN apt-get update && apt-get install -y \
+    git \
+    ffmpeg \
+    build-essential \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # 2. 复制依赖文件
 COPY requirements.txt .
-# 3. 安装依赖
+
+# 3. 升级 pip 并执行统一安装
+# 在一个工具齐全的环境里，这个命令现在可以成功编译所有需要的库。
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir \
         torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
