@@ -34,4 +34,4 @@ EXPOSE 7860
 
 # 7. 启动命令
 # 使用 --host 参数
-CMD ["gradio", "app.py", "--host", "0.0.0.0", "--server-port", "7860"]
+CMD ["python", "app.py"]
