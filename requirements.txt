@@ -6,3 +6,5 @@ librosa
 yt-dlp
 ffmpeg-python
 pyannote.audio
+torch
+torchaudio

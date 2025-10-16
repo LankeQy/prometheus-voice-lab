@@ -1,11 +1,9 @@
-# "战地加固版" Dockerfile
-FROM python:3.10-slim
+
+FROM python:3.10
 
 WORKDIR /app
 
-# 1.
-# build-essential: 包含了 C/C++ 编译器、make 等所有编译源代码所需的工具。
-# libsndfile1: 某些音频库在底层需要的共享库。
+# 1. 在一个完整的 Debian 系统上，安装我们的“施工工具”
 RUN apt-get update && apt-get install -y \
     git \
     ffmpeg \
@@ -17,11 +15,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # 3. 升级 pip 并执行统一安装
-# 在一个工具齐全的环境里，这个命令现在可以成功编译所有需要的库。
+# 在一个完整的、工具齐全的环境里，pip 将拥有解决所有依赖问题的能力。
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir \
-        torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
-        -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt
 
 # 4. 复制所有应用代码
 COPY . .
