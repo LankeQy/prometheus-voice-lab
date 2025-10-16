@@ -1,14 +1,8 @@
-
 gradio
 transformers>=4.30.0
-
 speechbrain==1.0.3
 soundfile
 librosa
 yt-dlp
 ffmpeg-python
-
-torch
-torchaudio
-
 pyannote.audio

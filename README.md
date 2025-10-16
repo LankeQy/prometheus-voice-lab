@@ -1,10 +1,10 @@
 ---
-title: Prometheus Flagship Voice Lab
-emoji: 🚀
-colorFrom: yellow
-colorTo: red
-sdk: gradio
-app_file: app.py
+title: Prometheus Super-Flagship Voice Lab
+emoji: 🛰️
+colorFrom: green
+colorTo: pink
+sdk: docker
+app_port: 7860
 ---
 
 # 🚀 普罗米修斯旗舰声音实验室
