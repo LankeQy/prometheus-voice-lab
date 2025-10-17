@@ -15,7 +15,11 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 # 加载预训练的声纹识别模型
 try:
-    speaker_model = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-xvect-voxceleb", savedir="tmpdir")
+    speaker_model = SpeakerRecognition.from_hparams(
+        source="speechbrain/spkrec-xvect-voxceleb",
+        savedir="pretrained_models/spkrec-xvect-voxceleb", # A temporary directory for the model
+        run_opts={"device": device}
+    )
     print("✅ 声纹提取模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹提取模型加载失败: {e}")
