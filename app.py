@@ -14,7 +14,8 @@ print("正在加载所有模型，这将需要几分钟...")
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 try:
-    speaker_model = SpeakerRecognition.from_huggingface("speechbrain/spkrec-xvect-voxceleb", run_opts={"device": device})
+    # 使用SpeechBrain的直接加载方法
+    speaker_model = SpeakerRecognition.from_pretrained("speechbrain/spkrec-xvect-voxceleb", run_opts={"device": device})
     print("✅ 声纹提取模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹提取模型加载失败: {e}")
