@@ -1,11 +1,17 @@
 
-gradio
-transformers
-speechbrain
+gradio==4.19.2
+
+speechbrain==1.0.3
 soundfile
 librosa
 yt-dlp
 ffmpeg-python
 
-torch
-torchaudio
+
+torch==2.2.2
+torchaudio==2.2.2
+
+transformers==4.39.3
+
+
+numpy<2
