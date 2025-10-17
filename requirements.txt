@@ -1,11 +1,11 @@
 
 gradio
-transformers>=4.30.0
-speechbrain==1.0.3
+transformers
+speechbrain
 soundfile
 librosa
 yt-dlp
 ffmpeg-python
 
-torch==2.1.0
-torchaudio==2.1.0
+torch
+torchaudio
