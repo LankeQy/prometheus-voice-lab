@@ -1,4 +1,4 @@
-# app.py (Flagship Version - Final)
+# app.py (Flagship Version - Final & Complete)
 import gradio as gr
 import torch
 import torchaudio
@@ -13,7 +13,6 @@ import traceback
 print("正在加载所有模型，这将需要几分钟...")
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-# 声纹提取模型
 try:
     speaker_model = SpeakerRecognition.from_huggingface("speechbrain/spkrec-xvect-voxceleb",
                                                         run_opts={"device": device})
@@ -22,7 +21,6 @@ except Exception as e:
     print(f"🔴 声纹提取模型加载失败: {e}")
     speaker_model = None
 
-# TTS 模型 (用于即时试听)
 try:
     tts_processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
     tts_model = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(device)
@@ -93,8 +91,8 @@ def download_youtube_audio(youtube_url):
         raise gr.Error(f"URL 下载失败: {e}")
 
 
-def generate_and_test(audio_file, mic_audio, youtube_url, text_to_speak):
-    if not any([audio_file, mic_audio, youtube_url]):
+def generate_and_test(audio_file, mic_input, youtube_url, text_to_speak):
+    if not any([audio_file, mic_input, youtube_url]):
         raise gr.Error("请提供一个音频源：上传文件、录音或视频链接。")
     if not text_to_speak:
         raise gr.Error("请输入要试听的文本。")
@@ -103,13 +101,14 @@ def generate_and_test(audio_file, mic_audio, youtube_url, text_to_speak):
 
     waveform, source_name = None, "audio"
 
+    # 优先级: YouTube > 文件上传 > 麦克风
     if youtube_url:
         youtube_filepath = download_youtube_audio(youtube_url)
         waveform, source_name = process_audio_and_get_name(youtube_filepath, "YouTube")
     elif audio_file is not None:
         waveform, source_name = process_audio_and_get_name(audio_file.name, "file")
-    elif mic_audio is not None:
-        waveform, source_name = process_audio_and_get_name(mic_audio, "microphone_temp")
+    elif mic_input is not None:
+        waveform, source_name = process_audio_and_get_name(mic_input, "microphone_temp")
         source_name = "mic_recording"
 
     print("正在生成声纹...")
@@ -168,7 +167,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
 
     generate_btn.click(
         fn=generate_and_test,
-        inputs=[audio_file_input, mic_audio, youtube_input, text_input],
+        inputs=[audio_file_input, mic_input, youtube_input, text_input],
         outputs=[pt_output, audio_output],
         api_name="generate"
     )
