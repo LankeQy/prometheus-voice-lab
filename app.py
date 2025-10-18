@@ -1,4 +1,4 @@
-# app.py (Coronation Version - The Final One)
+# app.py (Coronation Version - With Chef's Knife)
 import gradio as gr
 import torch
 import torchaudio
@@ -8,46 +8,40 @@ import yt_dlp
 import os
 import uuid
 import traceback
+import librosa
+import numpy as np
 
-# ---- 1. 模型加载 ----
+# ---- 1. 模型加载
 print("正在加载所有模型，这将需要几分钟...")
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
 try:
-    speaker_model = SpeakerRecognition.from_hparams(
-        source="speechbrain/spkrec-xvect-voxceleb",
-        savedir="pretrained_models/spkrec-xvect-voxceleb",
-        run_opts={"device": device}
-    )
+    speaker_model = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-xvect-voxceleb",
+                                                    savedir="pretrained_models/spkrec-xvect-voxceleb",
+                                                    run_opts={"device": device})
     print("✅ 声纹提取模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹提取模型加载失败: {e}")
     speaker_model = None
-
 try:
     tts_processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-cn")
-
     tts_model = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(device)
     tts_vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(device)
     print("✅ TTS 试听模型加载成功 (已配置中文)！")
 except Exception as e:
     print(f"🔴 TTS 试听模型加载失败: {e}")
     tts_model = None
-
 print("✅ 所有模型加载完毕，应用准备就绪！")
 
 
-# ---- 2. 核心功能函数
+# ---- 2. 核心功能函数 ----
+
 def process_audio_and_get_name(filepath, source_info="file"):
     if filepath is None: return None, None
-    print(f"正在处理来自 '{source_info}' 的音频: {filepath}")
+    print(f"正在使用 librosa 处理来自 '{source_info}' 的音频: {filepath}")
     try:
-        signal, fs = torchaudio.load(filepath)
-        if fs != 16000:
-            resampler = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)
-            signal = resampler(signal)
-        if signal.shape[0] > 1:
-            signal = torch.mean(signal, dim=0, keepdim=True)
+        signal, fs = librosa.load(filepath, sr=16000, mono=True)
+        signal = torch.from_numpy(signal).unsqueeze(0)
+
         source_name = os.path.splitext(os.path.basename(filepath))[0]
         if source_info in ["YouTube", "microphone_temp"]:
             try:
@@ -116,7 +110,7 @@ def generate_and_test(audio_file, mic_input, youtube_url, text_to_speak):
     return pt_filename, test_audio_filename
 
 
-# ---- 3. Gradio 界面定义 (这部分代码是完美的，无需修改) ----
+# ---- 3. Gradio 界面定义
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
     gr.Markdown("在这里生产、并即时测试用于您 AI 大脑的任何声音。")
