@@ -1,27 +1,30 @@
-# app.py (Coronation Version - With Chef's Knife)
+# app.py
 import gradio as gr
 import torch
 import torchaudio
-from speechbrain.inference.speaker import SpeakerRecognition
+
+from speechbrain.inference.classifiers import EncoderClassifier
 from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 import yt_dlp
 import os
 import uuid
 import traceback
-import librosa
-import numpy as np
 
-# ---- 1. 模型加载
+# ---- 1. 模型加载 ----
 print("正在加载所有模型，这将需要几分钟...")
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
 try:
-    speaker_model = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-xvect-voxceleb",
-                                                    savedir="pretrained_models/spkrec-xvect-voxceleb",
-                                                    run_opts={"device": device})
+    speaker_model = EncoderClassifier.from_hparams(
+        source="speechbrain/spkrec-xvect-voxceleb",
+        savedir="pretrained_models/spkrec-xvect-voxceleb",
+        run_opts={"device": device}
+    )
     print("✅ 声纹提取模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹提取模型加载失败: {e}")
     speaker_model = None
+
 try:
     tts_processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-cn")
     tts_model = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(device)
@@ -30,18 +33,21 @@ try:
 except Exception as e:
     print(f"🔴 TTS 试听模型加载失败: {e}")
     tts_model = None
+
 print("✅ 所有模型加载完毕，应用准备就绪！")
 
 
-# ---- 2. 核心功能函数 ----
-
+# ---- 2. 核心功能函数
 def process_audio_and_get_name(filepath, source_info="file"):
     if filepath is None: return None, None
-    print(f"正在使用 librosa 处理来自 '{source_info}' 的音频: {filepath}")
+    print(f"正在处理来自 '{source_info}' 的音频: {filepath}")
     try:
-        signal, fs = librosa.load(filepath, sr=16000, mono=True)
-        signal = torch.from_numpy(signal).unsqueeze(0)
-
+        signal, fs = torchaudio.load(filepath)
+        if fs != 16000:
+            resampler = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)
+            signal = resampler(signal)
+        if signal.shape[0] > 1:
+            signal = torch.mean(signal, dim=0, keepdim=True)
         source_name = os.path.splitext(os.path.basename(filepath))[0]
         if source_info in ["YouTube", "microphone_temp"]:
             try:
@@ -54,27 +60,24 @@ def process_audio_and_get_name(filepath, source_info="file"):
         traceback.print_exc()
         raise gr.Error(f"音频处理失败: {e}")
 
-
 def download_youtube_audio(youtube_url):
     if not youtube_url: return None
     print(f"正在从 URL 下载: {youtube_url}")
     temp_filename = f"temp_audio_{uuid.uuid4().hex}"
-    ydl_opts = {'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
-                'outtmpl': temp_filename, 'quiet': True, 'nocheckcertificate': True}
+    ydl_opts = {'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}], 'outtmpl': temp_filename, 'quiet': True, 'nocheckcertificate': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
         output_path = f"{temp_filename}.wav"
         if not os.path.exists(output_path):
-            possible_files = [f for f in os.listdir('.') if f.startswith(temp_filename)]
-            if not possible_files: raise FileNotFoundError("yt-dlp 下载后未找到任何音频文件。")
-            os.rename(possible_files[0], output_path)
+             possible_files = [f for f in os.listdir('.') if f.startswith(temp_filename)]
+             if not possible_files: raise FileNotFoundError("yt-dlp 下载后未找到任何音频文件。")
+             os.rename(possible_files[0], output_path)
         print(f"URL 音频已下载到: {output_path}")
         return output_path
     except Exception as e:
         traceback.print_exc()
         raise gr.Error(f"URL 下载失败: {e}")
-
 
 def generate_and_test(audio_file, mic_input, youtube_url, text_to_speak):
     if not any([audio_file, mic_input, youtube_url]):
@@ -109,7 +112,6 @@ def generate_and_test(audio_file, mic_input, youtube_url, text_to_speak):
     print(f"试听音频已生成: {test_audio_filename}")
     return pt_filename, test_audio_filename
 
-
 # ---- 3. Gradio 界面定义
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
@@ -121,8 +123,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                 with gr.TabItem("📁 上传文件"):
                     audio_file_input = gr.File(label="支持 WAV, MP3, M4A 等格式")
                 with gr.TabItem("🔗 视频平台链接"):
-                    youtube_input = gr.Textbox(label="粘贴 YouTube, Bilibili, 抖音等 URL",
-                                               placeholder="https://www.bilibili.com/video/BV...")
+                    youtube_input = gr.Textbox(label="粘贴 YouTube, Bilibili, 抖音等 URL", placeholder="https://www.bilibili.com/video/BV...")
                 with gr.TabItem("🎤 麦克风录制"):
                     mic_input = gr.Audio(sources=["microphone"], type="filepath", label="点击录制你的声音")
             gr.Markdown("### 2. 输入试听文本")
