@@ -1,11 +1,12 @@
 # requirements.txt
 
 # --- Core ML/AI Libraries ---
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.2.2
 torchaudio==2.2.2
 transformers==4.39.3
 speechbrain==1.0.3
-numpy<2.0  # Crucial for compatibility with speechbrain/transformers
+numpy<2.0
 
 # --- Gradio Web UI ---
 gradio==4.19.2
@@ -15,4 +16,4 @@ yt-dlp
 ffmpeg-python
 soundfile
 librosa
-sentencepiece # Often required by HuggingFace tokenizers/processors
+sentencepiece
