@@ -2,17 +2,16 @@
 import gradio as gr
 import torch
 import torchaudio
-
 from speechbrain.inference.classifiers import EncoderClassifier
-from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 import yt_dlp
 import os
 import uuid
 import traceback
 
 # ---- 1. 模型加载 ----
-print("正在加载所有模型，这将需要几分钟...")
+print("正在加载声纹提取模型...")
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
+print(f"使用设备: {device}")
 
 try:
     speaker_model = EncoderClassifier.from_hparams(
@@ -20,50 +19,30 @@ try:
         savedir="pretrained_models/spkrec-xvect-voxceleb",
         run_opts={"device": device}
     )
-    print("✅ 声纹提取模型加载成功！")
+    print("✅ 声纹提取模型加载成功！应用准备就绪。")
 except Exception as e:
     print(f"🔴 声纹提取模型加载失败: {e}")
     speaker_model = None
 
-try:
-    tts_processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-cn")
-    tts_model = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(device)
-    tts_vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(device)
-    print("✅ TTS 试听模型加载成功 (已配置中文)！")
-except Exception as e:
-    print(f"🔴 TTS 试听模型加载失败: {e}")
-    tts_model = None
 
-print("✅ 所有模型加载完毕，应用准备就绪！")
-
-
-# ---- 2. 核心功能函数
+# ---- 2. 核心功能函数 ----
 def process_audio_and_get_name(filepath, source_info="file"):
-    """
-    加载、重采样并清理音频文件，返回波形和基本名称。
-    """
     if filepath is None: return None, None
     print(f"正在处理来自 '{source_info}' 的音频: {filepath}")
     try:
         signal, fs = torchaudio.load(filepath)
-        # 确保采样率为 16kHz
         if fs != 16000:
             resampler = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)
             signal = resampler(signal)
-        # 转换为单声道
         if signal.shape[0] > 1:
             signal = torch.mean(signal, dim=0, keepdim=True)
-
         source_name = os.path.splitext(os.path.basename(filepath))[0]
-
-        # 清理临时文件
         if source_info in ["YouTube", "microphone_temp"]:
             try:
                 os.remove(filepath)
                 print(f"已清理临时文件: {filepath}")
             except Exception as e:
-                print(f"清理临时文件失败 '{filepath}': {e}")
-
+                print(f"清理临时文件失败: {e}")
         return signal, source_name
     except Exception as e:
         traceback.print_exc()
@@ -71,64 +50,42 @@ def process_audio_and_get_name(filepath, source_info="file"):
 
 
 def download_youtube_audio(youtube_url):
-    """
-    使用 yt-dlp 从 URL 下载音频并返回文件路径。
-    """
     if not youtube_url: return None
     print(f"正在从 URL 下载: {youtube_url}")
-    # 创建一个唯一的临时文件名
-    temp_filename = os.path.join("/tmp", f"temp_audio_{uuid.uuid4().hex}")
-
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'wav',
-        }],
-        'outtmpl': temp_filename,  # 指定输出模板，不带扩展名
-        'quiet': True,
-        'nocheckcertificate': True
-    }
-
+    temp_filename = f"temp_audio_{uuid.uuid4().hex}"
+    ydl_opts = {'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
+                'outtmpl': temp_filename, 'quiet': True, 'nocheckcertificate': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
-        output_path = f"{temp_filename}.wav"  # yt-dlp 会自动添加扩展名
+        output_path = f"{temp_filename}.wav"
         if not os.path.exists(output_path):
-            # 有时扩展名可能是其他格式，做一个后备检查
-            possible_files = [f for f in os.listdir("/tmp") if f.startswith(os.path.basename(temp_filename))]
+            possible_files = [f for f in os.listdir('.') if f.startswith(temp_filename)]
             if not possible_files: raise FileNotFoundError("yt-dlp 下载后未找到任何音频文件。")
-            # 将找到的第一个文件重命名为期望的 .wav 文件
-            found_file = os.path.join("/tmp", possible_files[0])
-            os.rename(found_file, output_path)
-
+            os.rename(possible_files[0], output_path)
         print(f"URL 音频已下载到: {output_path}")
         return output_path
     except Exception as e:
         traceback.print_exc()
-        raise gr.Error(f"URL 下载或处理失败: {e}")
+        raise gr.Error(f"URL 下载失败: {e}")
 
 
-def generate_and_test(audio_file, mic_input, youtube_url, text_to_speak):
+def generate_embedding_only(audio_file, mic_input, youtube_url, progress=gr.Progress()):
     """
-    主逻辑函数：接收输入，生成声纹和试听音频。
+    主函数：生成声纹文件，并附带质量验证报告。
     """
-    # 检查输入
+    progress(0, desc="检查输入...")
     if not any([audio_file, mic_input, youtube_url]):
         raise gr.Error("请提供一个音频源：上传文件、录音或视频链接。")
-    if not text_to_speak:
-        raise gr.Error("请输入要试听的文本。")
-    if speaker_model is None or tts_model is None:
+    if speaker_model is None:
         raise gr.Error("核心模型未能加载，应用无法工作。请检查启动日志。")
 
     waveform, source_name = None, "audio"
-
-    # 根据输入源处理音频
+    progress(0.2, desc="处理音频源...")
     if youtube_url:
         youtube_filepath = download_youtube_audio(youtube_url)
         waveform, source_name = process_audio_and_get_name(youtube_filepath, "YouTube")
     elif audio_file is not None:
-        # 关键修复：Gradio 4.x 直接返回文件路径字符串，而不是文件对象
         waveform, source_name = process_audio_and_get_name(audio_file, "file")
     elif mic_input is not None:
         waveform, source_name = process_audio_and_get_name(mic_input, "microphone_temp")
@@ -137,43 +94,65 @@ def generate_and_test(audio_file, mic_input, youtube_url, text_to_speak):
     if waveform is None:
         raise gr.Error("无法从提供的源加载音频。")
 
-    print("正在生成声纹...")
+    progress(0.6, desc="正在生成声纹...")
     with torch.no_grad():
-        # SpeechBrain 的 encode_batch 期望 (batch, time)，我们的 waveform 是 (1, time)，正好符合
         embedding = speaker_model.encode_batch(waveform.to(device))
         embedding = torch.nn.functional.normalize(embedding, dim=2)
-        # 输出形状是 (1, 1, 512)，提取出 (512,) 的向量
         final_embedding = embedding.squeeze()
+
+    # ---- 新增：验证步骤 ----
+    validation_report = ""
+    is_healthy = True
+    try:
+        # 1. 检查形状
+        shape = final_embedding.shape
+        if len(shape) == 1 and shape[0] == 512:
+            validation_report += f"✅ 形状正确: {shape}\n"
+        else:
+            validation_report += f"❌ 形状错误: {shape} (应为 [512])\n"
+            is_healthy = False
+
+        # 2. 检查数值
+        if torch.isnan(final_embedding).any() or torch.isinf(final_embedding).any():
+            validation_report += "❌ 向量中包含无效值 (NaN/inf)\n"
+            is_healthy = False
+        else:
+            validation_report += "✅ 数值有效 (无 NaN/inf)\n"
+
+        # 3. 检查范数 (模长)
+        norm = torch.linalg.norm(final_embedding).item()
+        if 0.99 < norm < 1.01:
+            validation_report += f"✅ 归一化成功 (向量模长 ≈ {norm:.4f})\n"
+        else:
+            validation_report += f"❌ 归一化失败 (向量模长 = {norm:.4f}，应接近1)\n"
+            is_healthy = False
+
+        if not is_healthy:
+            validation_report += "\n⚠️ 警告: 声纹文件可能无效，请检查源音频质量（如是否静音、噪音过大等）。"
+
+    except Exception as e:
+        validation_report = f"验证过程中出现异常: {e}"
+    # ---- 验证结束 ----
 
     pt_filename = f"{source_name}_embedding.pt"
     torch.save(final_embedding, pt_filename)
     print(f"声纹文件已保存: {pt_filename}")
+    progress(1.0, desc="完成！")
 
-    print("正在进行TTS试听...")
-    inputs = tts_processor(text=text_to_speak, return_tensors="pt").to(device)
-    # SpeechT5 需要 (1, 512) 形状的 embedding
-    speaker_embeddings_for_tts = final_embedding.unsqueeze(0).to(device)
-
-    speech = tts_model.generate_speech(inputs["input_ids"], speaker_embeddings_for_tts, vocoder=tts_vocoder)
-
-    test_audio_filename = f"test_{source_name}.wav"
-    # torchaudio.save 需要 (channels, time) 格式
-    torchaudio.save(test_audio_filename, speech.cpu().unsqueeze(0), 16000)
-    print(f"试听音频已生成: {test_audio_filename}")
-
-    return pt_filename, test_audio_filename
+    return pt_filename, validation_report
 
 
-# ---- 3. Gradio 界面定义 ----
+# ---- 3. Gradio 界面定义 (带验证报告) ----
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
-    gr.Markdown("在这里生产、并即时测试用于您 AI 大cha脑的任何声音。")
+    gr.Markdown("# 🚀 普罗米修斯声纹提取器")
+    gr.Markdown("一个专注、高效的工具，用于为您的 AI 助手生产 `.pt` 声纹文件。")
+
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("### 1. 提供声音源 (三选一)")
+            gr.Markdown("建议使用 **5-30秒** 的**清晰、无背景噪音**的音频以获得最佳效果。")
             with gr.Tabs():
                 with gr.TabItem("📁 上传文件"):
-                    # Gradio 4.x, type='filepath' 是默认值，返回字符串路径
                     audio_file_input = gr.File(label="支持 WAV, MP3, M4A 等格式")
                 with gr.TabItem("🔗 视频平台链接"):
                     youtube_input = gr.Textbox(label="粘贴 YouTube, Bilibili, 抖音等 URL",
@@ -181,23 +160,25 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                 with gr.TabItem("🎤 麦克风录制"):
                     mic_input = gr.Audio(sources=["microphone"], type="filepath", label="点击录制你的声音")
 
-            gr.Markdown("### 2. 输入试听文本")
-            text_input = gr.Textbox(label="输入要试听的中文", value="你好，我是普罗米修斯。这是我的新声音。")
-
-            generate_btn = gr.Button("生成并试听", variant="primary")
+            generate_btn = gr.Button("生成并验证声纹文件", variant="primary")
 
         with gr.Column(scale=1):
-            gr.Markdown("### 3. 获取结果")
+            gr.Markdown("### 2. 下载并验证结果")
             pt_output = gr.File(label="下载声纹 (.pt 文件)")
-            audio_output = gr.Audio(label="试听克隆效果", type="filepath")
+            # 新增一个文本框来显示验证报告
+            validation_output = gr.Textbox(
+                label="声纹质量报告 (自动生成)",
+                lines=5,
+                interactive=False
+            )
 
     generate_btn.click(
-        fn=generate_and_test,
-        inputs=[audio_file_input, mic_input, youtube_input, text_input],
-        outputs=[pt_output, audio_output],
-        api_name="generate"
+        fn=generate_embedding_only,
+        inputs=[audio_file_input, mic_input, youtube_input],
+        # 将输出绑定到两个组件上
+        outputs=[pt_output, validation_output],
+        api_name="generate_embedding"
     )
 
 # ---- 4. 启动应用 ----
-if __name__ == "__main__":
-    demo.launch()
+demo.launch()
