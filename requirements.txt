@@ -14,3 +14,6 @@ gradio==4.19.2
 yt-dlp
 ffmpeg-python
 soundfile
+
+
+requests
