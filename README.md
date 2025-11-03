@@ -3,7 +3,7 @@ title: Prometheus Flagship Voice Lab
 emoji: 🚀
 colorFrom: green
 colorTo: pink
-sdk: docker  
+sdk: docker
 app_port: 7860
 ---
 

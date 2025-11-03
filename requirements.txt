@@ -1,10 +1,10 @@
 # requirements.txt
 
 # --- Core ML/AI Libraries ---
---extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.2.2
 torchaudio==2.2.2
-speechbrain==1.0.3
+#  speechbrain
+speechbrain
 numpy<2.0
 
 # --- Gradio Web UI ---

@@ -1,50 +1,52 @@
-# 使用更小的 slim 基础镜像
+# Dockerfile
+
+# 使用 Python 3.10 的 slim 版本作为基础镜像，体积更小
 FROM python:3.10-slim
 
+# 设置工作目录
 WORKDIR /app
 
-# 1. 设置环境变量
-ENV HF_HOME=/app/huggingface_cache
-ENV MPLCONFIGDIR=/app/matplotlib_cache
-ENV PIP_NO_CACHE_DIR=1
-# 设定非交互式前端，避免 apt-get 在构建时卡住
-ENV DEBIAN_FRONTEND=noninteractive
+# 1. 设置环境变量，避免交互式提示并优化 Python 输出
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    GRADIO_ANALYTICS_ENABLED=false
 
-# 2. 安装系统依赖并清理
-RUN apt-get update && apt-get install -y \
+# 2. 安装系统依赖
+# 将所有 apt-get 操作合并到一层以减小镜像体积，并最后清理缓存
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ffmpeg \
     build-essential \
     libsndfile1 \
-    espeak-ng \
-    --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. 创建所有需要的目录
-# 我们一次性创建所有目录，方便后面统一授权
-RUN mkdir -p $HF_HOME $MPLCONFIGDIR
+# 3. 创建一个非 root 用户来运行应用，这是解决权限问题的关键
+# 创建一个名为 appuser 的用户和组
+RUN groupadd -r appuser --gid=1000 && useradd -r -g appuser --uid=1000 --create-home appuser
 
-# 4. 复制依赖文件
+# 4. 复制并安装 Python 依赖
+# 先复制 requirements.txt 并安装，可以利用 Docker 的层缓存机制
+# 只有当 requirements.txt 变化时，这一层才会重新构建
 COPY requirements.txt .
-
-# 5. 安装 Python 依赖
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
-# 6. 预下载模型
-COPY download_models.py .
+# 5. 切换到新创建的非 root 用户
+USER appuser
+
+# 6. 以 appuser 身份预下载模型
+# 此时创建的所有文件和目录的所有者都将是 appuser
+COPY --chown=appuser:appuser download_models.py .
 RUN python download_models.py
 
-# 7. 复制所有应用代码
-COPY . .
+# 7. 复制应用代码
+# 使用 --chown 确保复制的文件也属于 appuser
+COPY --chown=appuser:appuser . .
 
-# 8. 【关键修复 - 通用方案】授予所有用户对工作目录的写入权限
-# 这确保了无论容器以哪个用户身份运行，都能写入所需的文件
-RUN chmod -R 777 /app
-
-# 9. 暴露端口
+# 8. 暴露应用端口
 EXPOSE 7860
 
-# 10. 定义启动命令
+# 9. 定义容器启动命令
 CMD ["python", "app.py"]
