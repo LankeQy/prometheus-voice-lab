@@ -299,7 +299,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
             validation_output = gr.Textbox(label="声纹质量报告", lines=5, interactive=False)
 
     # 试听区域，默认隐藏，在生成声纹后显示
-    with gr.Box(visible=False) as tts_box:
+    with gr.Group(visible=False) as tts_box:
         gr.Markdown("---")
         gr.Markdown("### 3. 即时试听克隆效果 (由 Microsoft SpeechT5 驱动)")
         with gr.Row():
