@@ -3,15 +3,15 @@ from transformers import (
     SpeechT5Processor,
     SpeechT5ForTextToSpeech,
     SpeechT5HifiGan,
-    AutoProcessor,
+    AutoFeatureExtractor,
     AutoModel
 )
 
-# --- 1. 下载官方推荐的、与SpeechT5配套的声纹提取模型 ---
-print("开始预下载 SpeechT5 配套的声纹提取模型...")
+# --- 1. 下载一个完全公开的声纹提取模型 ---
+print("开始预下载公开声纹提取模型 (Microsoft WavLM)...")
 try:
-    embedding_model_id = "speechbrain/speaker-recognition-ecapa-tdnn-voxceleb"
-    AutoProcessor.from_pretrained(embedding_model_id)
+    embedding_model_id = "microsoft/wavlm-base-plus-sv"
+    AutoFeatureExtractor.from_pretrained(embedding_model_id)
     AutoModel.from_pretrained(embedding_model_id)
     print("✅ 声纹提取模型下载完毕。")
 except Exception as e:

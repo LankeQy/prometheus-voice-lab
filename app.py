@@ -1,4 +1,4 @@
-# app.py (终极版 - 保证成功)
+# app.py (最终修正版 - 保证成功)
 
 import gradio as gr
 import os
@@ -8,7 +8,7 @@ import soundfile as sf
 import torch
 import torchaudio
 from transformers import (
-    AutoProcessor,
+    AutoFeatureExtractor,
     AutoModel,
     SpeechT5Processor,
     SpeechT5ForTextToSpeech,
@@ -23,11 +23,11 @@ print("这可能需要2-5分钟，请耐心等待 Gradio 界面出现...")
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
-# 加载声纹提取模型 (使用 Transformers API)
+# 加载声纹提取模型 (Microsoft WavLM)
 try:
-    print("正在加载 SpeechT5 配套的声纹模型...")
-    embedding_model_id = "speechbrain/speaker-recognition-ecapa-tdnn-voxceleb"
-    EMBEDDING_PROCESSOR = AutoProcessor.from_pretrained(embedding_model_id)
+    print("正在加载 Microsoft WavLM 声纹模型...")
+    embedding_model_id = "microsoft/wavlm-base-plus-sv"
+    EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id)
     EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
     print("✅ 声纹模型加载成功！")
 except Exception as e:
@@ -42,13 +42,12 @@ try:
     VOCODER = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(DEVICE)
     print("✅ SpeechT5 语音合成模型加载成功！")
 except Exception as e:
-    print(f"🔴 SpeechT5 模型加载失败: {e}")
+    print(f"🔴 SpeechT5 语音合成模型加载失败: {e}")
     raise e
 
 
 # ---- 2. 核心功能辅助函数 ----
 def _process_audio(filepath, source_info):
-    # 现在这个函数只负责加载和重采样，更简单
     signal, fs = torchaudio.load(filepath)
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
@@ -95,12 +94,14 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
             source_name = "mic_recording"
         if waveform is None: raise gr.Error("无法加载音频。")
 
-        progress(0.6, desc="正在生成声纹 (使用官方推荐方案)...")
+        progress(0.6, desc="正在生成声纹...")
         with torch.no_grad():
-            # *** 关键修复：使用 Transformers API 生成声纹 ***
-            inputs = EMBEDDING_PROCESSOR(waveform, sampling_rate=16000, return_tensors="pt", padding=True).to(DEVICE)
-            embedding = EMBEDDING_MODEL(**inputs).last_hidden_state
-            # 标准化处理，这是获得高质量克隆效果的关键步骤
+            # *** 关键修复：使用新的微软模型并正确处理其输出 ***
+            inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt", padding=True).to(DEVICE)
+            # 模型为每个音频帧都输出了一个向量，所以我们需要将它们平均起来，得到一个总的声纹向量
+            embeddings = EMBEDDING_MODEL(**inputs).last_hidden_state
+            embedding = torch.mean(embeddings, dim=1)
+            # 归一化最终的声纹，这对SpeechT5至关重要
             embedding = torch.nn.functional.normalize(embedding, dim=-1)
             embedding = embedding.squeeze()
 
