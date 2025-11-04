@@ -3,7 +3,6 @@
 # --- Core ML/AI Libraries ---
 torch==2.2.2
 torchaudio==2.2.2
-#  speechbrain
 speechbrain
 numpy<2.0
 
@@ -14,8 +13,11 @@ gradio==4.19.2
 yt-dlp
 ffmpeg-python
 soundfile
-
-
 requests
 
+# --- Dependency Compatibility Fix ---
 huggingface-hub<0.20.0
+
+# --- Text-to-Speech Engine (Lightweight & HF Native) ---
+transformers
+sentencepiece
