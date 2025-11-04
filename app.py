@@ -1,4 +1,4 @@
-# app.py (最终版)
+# app.py (真正的最终修复版)
 
 import gradio as gr
 import os
@@ -18,15 +18,10 @@ from transformers import (
 # ---- 1. 启动时直接加载所有模型 ----
 print("应用脚本启动，开始加载所有模型...")
 print("这可能需要2-5分钟，请耐心等待 Gradio 界面出现...")
-
-# 自动检测设备
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
-
-# 加载声纹提取模型 (Microsoft WavLM)
 try:
     print("正在加载 Microsoft WavLM 声纹模型...")
-    # 确保使用的是这个公开的模型ID
     embedding_model_id = "microsoft/wavlm-base-plus-sv"
     EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id)
     EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
@@ -34,8 +29,6 @@ try:
 except Exception as e:
     print(f"🔴 声纹模型加载失败: {e}")
     raise e
-
-# 加载语音合成模型 (SpeechT5)
 try:
     print("正在加载 SpeechT5 语音合成模型...")
     TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
@@ -52,6 +45,13 @@ def _process_audio(filepath, source_info):
     signal, fs = torchaudio.load(filepath)
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
+
+    # *** 关键修复 1: 确保返回的是一维张量 ***
+    # 如果是多声道，混合为单声道，然后移除多余的channel维度
+    if signal.shape[0] > 1:
+        signal = torch.mean(signal, dim=0)
+    signal = signal.squeeze(0)  # 移除channel维度，使其成为 [num_samples]
+
     source_name = os.path.splitext(os.path.basename(filepath))[0]
     if source_info in ["YouTube", "microphone_temp"]:
         try:
@@ -97,6 +97,8 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
 
         progress(0.6, desc="正在生成声纹...")
         with torch.no_grad():
+            # *** 关键修复 2: 将一维的 waveform 直接交给处理器 ***
+            # 处理器期望的就是最原始的一维波形数据
             inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt", padding=True).to(DEVICE)
             embeddings = EMBEDDING_MODEL(**inputs).last_hidden_state
             embedding = torch.mean(embeddings, dim=1)
@@ -156,11 +158,9 @@ def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()
 # ---- 4. Gradio 界面定义 ----
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
-    gr.Markdown("一个专业的在线声音克lone工具，您可以在这里生产、并即时测试用于您 AI 大脑的任何声音。")
+    gr.Markdown("一个专业的在线声音克隆工具，您可以在这里生产、并即时测试用于您 AI 大脑的任何声音。")
     gr.Markdown("✅ **环境已就绪**，所有模型均已加载完毕，您可以立即开始使用。")
-
     pt_file_state = gr.State(value=None)
-
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("### 1. 提供声音源")
@@ -172,12 +172,10 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                 with gr.TabItem("🎤 麦克风录制"):
                     mic_input = gr.Audio(sources=["microphone"], type="filepath", label="点击录制")
             generate_btn = gr.Button("生成并验证声纹文件", variant="primary")
-
         with gr.Column(scale=1):
             gr.Markdown("### 2. 下载并验证结果")
             pt_output = gr.File(label="下载声纹 (.pt 文件)")
             validation_output = gr.Textbox(label="声纹质量报告", lines=5, interactive=False)
-
     with gr.Group(visible=False) as tts_box:
         gr.Markdown("---")
         gr.Markdown("### 3. 即时试听克隆效果 (由 Microsoft SpeechT5 驱动)")
@@ -186,21 +184,11 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                                     value="你好，世界。这是一个由微软语音模型克隆的声音。")
             synthesize_btn = gr.Button("合成并试听", variant="primary")
         audio_output = gr.Audio(label="合成结果试听", type="filepath")
-
-    generate_btn.click(
-        fn=generate_embedding_wrapper,
-        inputs=[audio_file_input, mic_input, youtube_input],
-        outputs=[pt_output, validation_output, pt_file_state, tts_box]
-    )
-
-    synthesize_btn.click(
-        fn=synthesize_speech_wrapper,
-        inputs=[text_input, pt_file_state],
-        outputs=[audio_output]
-    )
+    generate_btn.click(fn=generate_embedding_wrapper, inputs=[audio_file_input, mic_input, youtube_input],
+                       outputs=[pt_output, validation_output, pt_file_state, tts_box])
+    synthesize_btn.click(fn=synthesize_speech_wrapper, inputs=[text_input, pt_file_state], outputs=[audio_output])
 
 # ---- 5. 启动应用 ----
 print("所有模型加载完毕，正在启动Gradio服务...")
 demo.launch(server_name="0.0.0.0", server_port=7860)
-
 print("✅ Gradio 服务已启动，应用正在等待用户操作。")
