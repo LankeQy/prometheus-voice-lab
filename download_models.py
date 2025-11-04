@@ -6,8 +6,8 @@ from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5Hif
 print("开始预下载声纹提取模型...")
 try:
     EncoderClassifier.from_hparams(
-        source="speechbrain/spkrec-xvect-voxceleb",
-        savedir="pretrained_models/spkrec-xvect-voxceleb",
+        source="speechbrain/spkrec-ecapa-voxceleb",
+        savedir="pretrained_models/spkrec-ecapa-voxceleb",
     )
     print("✅ 声纹提取模型下载完毕。")
 except Exception as e:
