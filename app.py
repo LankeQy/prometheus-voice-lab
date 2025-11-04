@@ -1,4 +1,4 @@
-# app.py (真正的最终修复版)
+# app.py (最终答案版 - 保证成功)
 
 import gradio as gr
 import os
@@ -9,7 +9,7 @@ import torch
 import torchaudio
 from transformers import (
     AutoFeatureExtractor,
-    AutoModel,
+    Wav2Vec2ForXVector,
     SpeechT5Processor,
     SpeechT5ForTextToSpeech,
     SpeechT5HifiGan
@@ -20,15 +20,19 @@ print("应用脚本启动，开始加载所有模型...")
 print("这可能需要2-5分钟，请耐心等待 Gradio 界面出现...")
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
+
+# 加载声纹提取模型 (anton-l/wav2vec2-base-superb-sv)
 try:
-    print("正在加载 Microsoft WavLM 声纹模型...")
-    embedding_model_id = "microsoft/wavlm-base-plus-sv"
+    print("正在加载最终声纹模型...")
+    embedding_model_id = "anton-l/wav2vec2-base-superb-sv"
     EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id)
-    EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
+    EMBEDDING_MODEL = Wav2Vec2ForXVector.from_pretrained(embedding_model_id).to(DEVICE)
     print("✅ 声纹模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹模型加载失败: {e}")
     raise e
+
+# 加载语音合成模型 (SpeechT5)
 try:
     print("正在加载 SpeechT5 语音合成模型...")
     TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
@@ -45,13 +49,9 @@ def _process_audio(filepath, source_info):
     signal, fs = torchaudio.load(filepath)
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
-
-    # *** 关键修复 1: 确保返回的是一维张量 ***
-    # 如果是多声道，混合为单声道，然后移除多余的channel维度
     if signal.shape[0] > 1:
         signal = torch.mean(signal, dim=0)
-    signal = signal.squeeze(0)  # 移除channel维度，使其成为 [num_samples]
-
+    signal = signal.squeeze(0)
     source_name = os.path.splitext(os.path.basename(filepath))[0]
     if source_info in ["YouTube", "microphone_temp"]:
         try:
@@ -81,9 +81,7 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
     try:
         progress(0.1, desc="检查输入...")
         if not any([audio_file, mic_input, youtube_input]): raise gr.Error("请提供一个音频源。")
-
         waveform, source_name = None, "audio"
-
         progress(0.2, desc="处理音频源...")
         if youtube_input:
             filepath = _download_youtube(youtube_input)
@@ -95,13 +93,13 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
             source_name = "mic_recording"
         if waveform is None: raise gr.Error("无法加载音频。")
 
-        progress(0.6, desc="正在生成声纹...")
+        progress(0.6, desc="正在生成512维声纹...")
         with torch.no_grad():
-            # *** 关键修复 2: 将一维的 waveform 直接交给处理器 ***
-            # 处理器期望的就是最原始的一维波形数据
-            inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt", padding=True).to(DEVICE)
-            embeddings = EMBEDDING_MODEL(**inputs).last_hidden_state
-            embedding = torch.mean(embeddings, dim=1)
+            # *** 终极修复：使用Wav2Vec2ForXVector生成正确的512维声纹 ***
+            inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt").to(DEVICE)
+            # 这个模型直接输出我们需要的池化后的声纹
+            embedding = EMBEDDING_MODEL(**inputs).embeddings
+            # 归一化是关键
             embedding = torch.nn.functional.normalize(embedding, dim=-1)
             embedding = embedding.squeeze()
 
@@ -135,17 +133,14 @@ def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()
     try:
         if not text_to_speak: raise gr.Error("请输入要合成的文本。")
         if not pt_filepath or not os.path.exists(pt_filepath): raise gr.Error("未找到有效的声纹文件。")
-
         progress(0.3, desc="加载声纹并处理文本...")
         inputs = TTS_PROCESSOR(text=text_to_speak, return_tensors="pt").to(DEVICE)
         speaker_embedding = torch.load(pt_filepath, map_location=DEVICE).unsqueeze(0)
-
         progress(0.6, desc="正在生成语音频谱...")
         with torch.no_grad():
             spectrogram = TTS_MODEL.generate_speech(inputs["input_ids"], speaker_embeddings=speaker_embedding)
             progress(0.8, desc="通过声码器合成最终音频...")
             speech = VOCODER(spectrogram)
-
         output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
         sf.write(output_wav_path, speech.cpu().numpy(), samplerate=16000)
         progress(1.0, desc="合成完毕！")
@@ -156,6 +151,7 @@ def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()
 
 
 # ---- 4. Gradio 界面定义 ----
+# [这部分界面代码无需改动，和之前一样]
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
     gr.Markdown("一个专业的在线声音克隆工具，您可以在这里生产、并即时测试用于您 AI 大脑的任何声音。")

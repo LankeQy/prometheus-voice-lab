@@ -4,16 +4,15 @@ from transformers import (
     SpeechT5ForTextToSpeech,
     SpeechT5HifiGan,
     AutoFeatureExtractor,
-    AutoModel
+    Wav2Vec2ForXVector
 )
 
-# --- 1. 下载一个完全公开的声纹提取模型 ---
-print("开始预下载公开声纹提取模型 (Microsoft WavLM)...")
+# --- 1. 下载最终选定的、公开的、输出512维的声纹模型 ---
+print("开始预下载最终声纹提取模型 (anton-l/wav2vec2-base-superb-sv)...")
 try:
-    # 确保使用的是这个公开的模型ID
-    embedding_model_id = "microsoft/wavlm-base-plus-sv"
+    embedding_model_id = "anton-l/wav2vec2-base-superb-sv"
     AutoFeatureExtractor.from_pretrained(embedding_model_id)
-    AutoModel.from_pretrained(embedding_model_id)
+    Wav2Vec2ForXVector.from_pretrained(embedding_model_id)
     print("✅ 声纹提取模型下载完毕。")
 except Exception as e:
     print(f"🔴 声纹提取模型下载失败: {e}")
