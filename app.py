@@ -95,7 +95,13 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_url, progress=gr.P
 
         progress(0.6, desc="正在生成兼容性声纹...")
         with torch.no_grad():
-            model_out = EMBEDDING_MODEL.mods.embedding_model(waveform.to(DEVICE))
+            # ECAPA-TDNN模型期望一个3D张量 (batch, time, channels)
+            # 我们的 waveform 是 2D (1, time)，所以需要增加一个批次维度
+            waveform_3d = waveform.unsqueeze(0).to(DEVICE)
+
+            #  3D 张量喂给模型
+            model_out = EMBEDDING_MODEL.mods.embedding_model(waveform_3d)
+
             if isinstance(model_out, tuple):
                 embedding_512d = model_out[-2].squeeze(0)
             else:
