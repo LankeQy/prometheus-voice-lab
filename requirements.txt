@@ -1,9 +1,10 @@
 # requirements.txt
 
 #
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==1.13.1
-torchaudio==0.13.1
+torch
+torchaudio
+#
+torchcodec
 numpy<2.0
 
 # Web UI
@@ -14,16 +15,8 @@ yt-dlp
 ffmpeg-python
 soundfile
 requests
-#
-pydub
 
 #
-transformers==4.30.0
+transformers
 sentencepiece
-protobuf==3.20.3
-
-#
-speechbrain
-
-#
 datasets
