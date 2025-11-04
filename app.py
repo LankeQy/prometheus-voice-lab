@@ -46,7 +46,7 @@ except Exception as e:
 
 # ---- 2. 核心功能辅助函数 ----
 def _process_audio(filepath, source_info):
-    signal, fs = torchaudio.load(filepath,backend="soundfile")
+    signal, fs = torchaudio.load(filepath)
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
     if signal.shape[0] > 1:
