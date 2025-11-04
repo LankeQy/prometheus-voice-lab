@@ -1,20 +1,17 @@
 # download_models.py (最终版)
 
-from transformers import (
-    SpeechT5Processor,
-    SpeechT5ForTextToSpeech,
-    SpeechT5HifiGan,
-    AutoFeatureExtractor,
-    Wav2Vec2ForXVector
-)
+from speechbrain.inference.classifiers import EncoderClassifier
+from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
+from datasets import load_dataset
 
-# --- 1. 下载最终选定的、公开的、输出512维的声纹模型 ---
-print("开始预下载最终声纹提取模型 (anton-l/wav2vec2-base-superb-sv)...")
+# --- 1. 下载 SpeechT5 官方范例所使用的 x-vect 声纹模型 ---
+print("开始预下载 SpeechT5 官方推荐的 x-vect 声纹模型...")
 try:
-    embedding_model_id = "anton-l/wav2vec2-base-superb-sv"
-    AutoFeatureExtractor.from_pretrained(embedding_model_id)
-    Wav2Vec2ForXVector.from_pretrained(embedding_model_id)
-    print("✅ 声纹提取模型下载完毕。")
+    EncoderClassifier.from_hparams(
+        source="speechbrain/spkrec-xvect-voxceleb",
+        savedir="pretrained_models/spkrec-xvect-voxceleb",
+    )
+    print("✅ x-vect 声纹提取模型下载完毕。")
 except Exception as e:
     print(f"🔴 声纹提取模型下载失败: {e}")
     raise e
@@ -31,3 +28,14 @@ try:
 except Exception as e:
     print(f"🔴 SpeechT5 模型下载失败: {e}")
     raise e
+
+# --- 3. 下载并缓存官方声纹范例数据集 (我们的 "黄金标准") ---
+print("\n开始预下载官方声纹范例数据集...")
+try:
+    # trust_remote_code=True 是新版 datasets 库需要的
+    load_dataset("Matthijs/cmu-arctic-xvectors", split="validation", trust_remote_code=True)
+    print("✅ 官方声纹范例数据集下载完毕。")
+except Exception as e:
+    print(f"🔴 官方声纹范例数据集下载失败: {e}")
+    # 这是一个非关键性步骤，即使失败，应用也能运行
+    pass

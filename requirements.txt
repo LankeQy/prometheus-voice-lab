@@ -1,23 +1,27 @@
 # requirements.txt
 
-# ---
+#
 torch
 torchaudio
 #
 torchcodec
-#
 numpy<2.0
 
-# --- Web UI ---
+# Web UI
 gradio
 
-# -
+#
 yt-dlp
 ffmpeg-python
 soundfile
 requests
 
-# --
+#
 transformers
 sentencepiece
+
+#
+speechbrain
+
+#
 datasets
