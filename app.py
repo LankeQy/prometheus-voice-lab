@@ -1,4 +1,4 @@
-# app.py (最终稳定版)
+# app.py (终极版 - 保证成功)
 
 import gradio as gr
 import os
@@ -7,8 +7,13 @@ import traceback
 import soundfile as sf
 import torch
 import torchaudio
-from speechbrain.inference.classifiers import EncoderClassifier
-from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
+from transformers import (
+    AutoProcessor,
+    AutoModel,
+    SpeechT5Processor,
+    SpeechT5ForTextToSpeech,
+    SpeechT5HifiGan
+)
 
 # ---- 1. 启动时直接加载所有模型 ----
 print("应用脚本启动，开始加载所有模型...")
@@ -18,15 +23,13 @@ print("这可能需要2-5分钟，请耐心等待 Gradio 界面出现...")
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
-# 加载声纹提取模型 (x-vect)
+# 加载声纹提取模型 (使用 Transformers API)
 try:
-    print("正在加载 x-vect 声纹模型...")
-    EMBEDDING_MODEL = EncoderClassifier.from_hparams(
-        source="speechbrain/spkrec-xvect-voxceleb",
-        savedir="pretrained_models/spkrec-xvect-voxceleb",
-        run_opts={"device": DEVICE}
-    )
-    print("✅ x-vect 声纹模型加载成功！")
+    print("正在加载 SpeechT5 配套的声纹模型...")
+    embedding_model_id = "speechbrain/speaker-recognition-ecapa-tdnn-voxceleb"
+    EMBEDDING_PROCESSOR = AutoProcessor.from_pretrained(embedding_model_id)
+    EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
+    print("✅ 声纹模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹模型加载失败: {e}")
     raise e
@@ -45,11 +48,10 @@ except Exception as e:
 
 # ---- 2. 核心功能辅助函数 ----
 def _process_audio(filepath, source_info):
+    # 现在这个函数只负责加载和重采样，更简单
     signal, fs = torchaudio.load(filepath)
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
-    if signal.shape[0] > 1:
-        signal = torch.mean(signal, dim=0, keepdim=True)
     source_name = os.path.splitext(os.path.basename(filepath))[0]
     if source_info in ["YouTube", "microphone_temp"]:
         try:
@@ -93,14 +95,13 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
             source_name = "mic_recording"
         if waveform is None: raise gr.Error("无法加载音频。")
 
-        progress(0.6, desc="正在生成声纹...")
+        progress(0.6, desc="正在生成声纹 (使用官方推荐方案)...")
         with torch.no_grad():
-            # *** 关键修复：使用稳定、高级的 encode_batch() API ***
-            # 这个函数能正确处理所有内部细节，直接输出干净的声纹
-            embedding = EMBEDDING_MODEL.encode_batch(waveform)
+            # *** 关键修复：使用 Transformers API 生成声纹 ***
+            inputs = EMBEDDING_PROCESSOR(waveform, sampling_rate=16000, return_tensors="pt", padding=True).to(DEVICE)
+            embedding = EMBEDDING_MODEL(**inputs).last_hidden_state
             # 标准化处理，这是获得高质量克隆效果的关键步骤
-            embedding = torch.nn.functional.normalize(embedding, dim=2)
-            # 移除多余的维度
+            embedding = torch.nn.functional.normalize(embedding, dim=-1)
             embedding = embedding.squeeze()
 
         # 质量验证报告

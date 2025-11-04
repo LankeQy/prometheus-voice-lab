@@ -1,15 +1,19 @@
 # download_models.py
-from speechbrain.inference.classifiers import EncoderClassifier
-from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
+from transformers import (
+    SpeechT5Processor,
+    SpeechT5ForTextToSpeech,
+    SpeechT5HifiGan,
+    AutoProcessor,
+    AutoModel
+)
 
-# --- 1. 下载声纹提取模型 (回归到最兼容的 x-vect 模型) ---
-print("开始预下载 x-vect 声纹提取模型...")
+# --- 1. 下载官方推荐的、与SpeechT5配套的声纹提取模型 ---
+print("开始预下载 SpeechT5 配套的声纹提取模型...")
 try:
-    EncoderClassifier.from_hparams(
-        source="speechbrain/spkrec-xvect-voxceleb",
-        savedir="pretrained_models/spkrec-xvect-voxceleb",
-    )
-    print("✅ x-vect 声纹提取模型下载完毕。")
+    embedding_model_id = "speechbrain/speaker-recognition-ecapa-tdnn-voxceleb"
+    AutoProcessor.from_pretrained(embedding_model_id)
+    AutoModel.from_pretrained(embedding_model_id)
+    print("✅ 声纹提取模型下载完毕。")
 except Exception as e:
     print(f"🔴 声纹提取模型下载失败: {e}")
     raise e

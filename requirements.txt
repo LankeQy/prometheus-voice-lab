@@ -3,7 +3,6 @@
 # --- Core ML/AI Libraries ---
 torch==2.2.2
 torchaudio==2.2.2
-speechbrain
 numpy<2.0
 
 # --- Gradio Web UI ---
@@ -18,6 +17,6 @@ requests
 # --- Dependency Compatibility Fix ---
 huggingface-hub<0.20.0
 
-# --- Text-to-Speech Engine (Lightweight & HF Native) ---
+# --- Unified AI Toolkit ---
 transformers
 sentencepiece
