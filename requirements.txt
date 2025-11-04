@@ -1,15 +1,20 @@
 # requirements.txt
-torch==2.2.2
+
+# ---
+torch
 torchaudio
 numpy<2.0
-gradio==4.19.2
+
+# --- Web UI ---
+gradio
+
+# ---
 yt-dlp
 ffmpeg-python
 soundfile
 requests
-huggingface-hub<2.0
+
+# --
 transformers
 sentencepiece
-speechbrain
-#
 datasets
