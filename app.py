@@ -1,4 +1,4 @@
-# app.py (最终修正版 - 保证成功)
+# app.py (最终版)
 
 import gradio as gr
 import os
@@ -26,6 +26,7 @@ print(f"使用的设备: {DEVICE}")
 # 加载声纹提取模型 (Microsoft WavLM)
 try:
     print("正在加载 Microsoft WavLM 声纹模型...")
+    # 确保使用的是这个公开的模型ID
     embedding_model_id = "microsoft/wavlm-base-plus-sv"
     EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id)
     EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
@@ -96,12 +97,9 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
 
         progress(0.6, desc="正在生成声纹...")
         with torch.no_grad():
-            # *** 关键修复：使用新的微软模型并正确处理其输出 ***
             inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt", padding=True).to(DEVICE)
-            # 模型为每个音频帧都输出了一个向量，所以我们需要将它们平均起来，得到一个总的声纹向量
             embeddings = EMBEDDING_MODEL(**inputs).last_hidden_state
             embedding = torch.mean(embeddings, dim=1)
-            # 归一化最终的声纹，这对SpeechT5至关重要
             embedding = torch.nn.functional.normalize(embedding, dim=-1)
             embedding = embedding.squeeze()
 
@@ -158,7 +156,7 @@ def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()
 # ---- 4. Gradio 界面定义 ----
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
-    gr.Markdown("一个专业的在线声音克隆工具，您可以在这里生产、并即时测试用于您 AI 大脑的任何声音。")
+    gr.Markdown("一个专业的在线声音克lone工具，您可以在这里生产、并即时测试用于您 AI 大脑的任何声音。")
     gr.Markdown("✅ **环境已就绪**，所有模型均已加载完毕，您可以立即开始使用。")
 
     pt_file_state = gr.State(value=None)

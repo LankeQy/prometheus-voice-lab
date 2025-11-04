@@ -10,6 +10,7 @@ from transformers import (
 # --- 1. 下载一个完全公开的声纹提取模型 ---
 print("开始预下载公开声纹提取模型 (Microsoft WavLM)...")
 try:
+    # 确保使用的是这个公开的模型ID
     embedding_model_id = "microsoft/wavlm-base-plus-sv"
     AutoFeatureExtractor.from_pretrained(embedding_model_id)
     AutoModel.from_pretrained(embedding_model_id)
