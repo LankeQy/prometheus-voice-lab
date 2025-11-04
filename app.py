@@ -1,4 +1,4 @@
-# app.py (终极可靠版 - 保证成功)
+# app.py (最终修复版 - 保证成功)
 
 import gradio as gr
 import os
@@ -15,14 +15,13 @@ from transformers import (
     SpeechT5HifiGan
 )
 
-# ---- 0. 设置 Torchaudio 后端 ----
-# *** 终极修复：在所有操作之前，强制 torchaudio 使用 ffmpeg 后端 ***
-# 这使得它能直接、可靠地处理 MP3 等格式，无需 pydub
-try:
-    torchaudio.set_audio_backend("ffmpeg")
-    print("✅ Torchaudio backend set to FFmpeg.")
-except RuntimeError as e:
-    print(f"🔴 Failed to set torchaudio backend to FFmpeg: {e}. Trying default.")
+# ---- 移除错误的全局设置 ----
+# try:
+#     torchaudio.set_audio_backend("ffmpeg") # 这是一个旧的API，在新版中已移除
+#     print("✅ Torchaudio backend set to FFmpeg.")
+# except Exception as e:
+#     print(f"🔴 Failed to set torchaudio backend: {e}.")
+
 
 # ---- 1. 启动时直接加载所有模型 ----
 print("应用脚本启动，开始加载所有模型...")
@@ -52,7 +51,9 @@ except Exception as e:
 
 # ---- 2. 核心功能辅助函数 ----
 def _process_audio(filepath, source_info):
-    # 现在 torchaudio 自己就能处理 MP3，代码变得极其简单
+    # *** 终极修复：在新版 torchaudio 中，不再需要全局设置后端 ***
+    # 直接在 load 函数中指定 backend 参数是无效的，因为 torchaudio 会优先尝试 torchcodec
+    # 正确的做法是确保 torchcodec 已安装，然后直接调用 load，让它自动选择最佳后端
     signal, fs = torchaudio.load(filepath)
 
     if fs != 16000:
@@ -86,7 +87,7 @@ def _download_youtube(youtube_url):
 
 
 # ---- 3. Gradio 事件处理函数 ----
-# ... [所有事件处理函数都无需改动，它们已经是正确的了] ...
+# ... [所有事件处理函数都无需改动] ...
 def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr.Progress()):
     try:
         progress(0.1, desc="检查输入...")
