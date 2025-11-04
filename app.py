@@ -186,5 +186,5 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
 
 # ---- 6. 启动应用 ----
 # 现在的启动路径非常轻量，应该能在30秒内完成
-demo.launch()
+demo.launch(server_name="0.0.0.0", server_port=7860)
 print("✅ Gradio 服务已启动，应用正在等待用户操作。")
