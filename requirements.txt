@@ -1,22 +1,15 @@
 # requirements.txt
-
-# --- Core ML/AI Libraries ---
 torch==2.2.2
-torchaudio==2.2.2
+torchaudio
 numpy<2.0
-
-# --- Gradio Web UI ---
 gradio==4.19.2
-
-# --- Audio/Video Processing ---
 yt-dlp
 ffmpeg-python
 soundfile
 requests
-
-# --- Dependency Compatibility Fix ---
-huggingface-hub<0.20.0
-
-# --- Unified AI Toolkit ---
+huggingface-hub<2.0
 transformers
 sentencepiece
+speechbrain
+#
+datasets
