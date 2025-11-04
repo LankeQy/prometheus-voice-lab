@@ -1,4 +1,4 @@
-# app.py (最终修复版 - 移除懒加载)
+# app.py (最终稳定版)
 
 import gradio as gr
 import os
@@ -18,15 +18,15 @@ print("这可能需要2-5分钟，请耐心等待 Gradio 界面出现...")
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
-# 加载声纹提取模型 (ECAPA-TDNN)
+# 加载声纹提取模型 (x-vect)
 try:
-    print("正在加载 ECAPA-TDNN 声纹模型...")
+    print("正在加载 x-vect 声纹模型...")
     EMBEDDING_MODEL = EncoderClassifier.from_hparams(
-        source="speechbrain/spkrec-ecapa-voxceleb",
-        savedir="pretrained_models/spkrec-ecapa-voxceleb",
+        source="speechbrain/spkrec-xvect-voxceleb",
+        savedir="pretrained_models/spkrec-xvect-voxceleb",
         run_opts={"device": DEVICE}
     )
-    print("✅ ECAPA-TDNN 声纹模型加载成功！")
+    print("✅ x-vect 声纹模型加载成功！")
 except Exception as e:
     print(f"🔴 声纹模型加载失败: {e}")
     raise e
@@ -75,16 +75,16 @@ def _download_youtube(youtube_url):
 
 
 # ---- 3. Gradio 事件处理函数 ----
-def generate_embedding_wrapper(audio_file, mic_input, youtube_url, progress=gr.Progress()):
+def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr.Progress()):
     try:
         progress(0.1, desc="检查输入...")
-        if not any([audio_file, mic_input, youtube_url]): raise gr.Error("请提供一个音频源。")
+        if not any([audio_file, mic_input, youtube_input]): raise gr.Error("请提供一个音频源。")
 
         waveform, source_name = None, "audio"
 
         progress(0.2, desc="处理音频源...")
-        if youtube_url:
-            filepath = _download_youtube(youtube_url)
+        if youtube_input:
+            filepath = _download_youtube(youtube_input)
             waveform, source_name = _process_audio(filepath, "YouTube")
         elif audio_file is not None:
             waveform, source_name = _process_audio(audio_file.name, "file")
@@ -93,21 +93,17 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_url, progress=gr.P
             source_name = "mic_recording"
         if waveform is None: raise gr.Error("无法加载音频。")
 
-        progress(0.6, desc="正在生成兼容性声纹...")
+        progress(0.6, desc="正在生成声纹...")
         with torch.no_grad():
-            # ECAPA-TDNN模型期望一个3D张量 (batch, time, channels)
-            # 我们的 waveform 是 2D (1, time)，所以需要增加一个批次维度
-            waveform_3d = waveform.unsqueeze(0).to(DEVICE)
+            # *** 关键修复：使用稳定、高级的 encode_batch() API ***
+            # 这个函数能正确处理所有内部细节，直接输出干净的声纹
+            embedding = EMBEDDING_MODEL.encode_batch(waveform)
+            # 标准化处理，这是获得高质量克隆效果的关键步骤
+            embedding = torch.nn.functional.normalize(embedding, dim=2)
+            # 移除多余的维度
+            embedding = embedding.squeeze()
 
-            #  3D 张量喂给模型
-            model_out = EMBEDDING_MODEL.mods.embedding_model(waveform_3d)
-
-            if isinstance(model_out, tuple):
-                embedding_512d = model_out[-2].squeeze(0)
-            else:
-                embedding_512d = model_out.squeeze(0)
-            embedding = torch.nn.functional.normalize(embedding_512d, dim=-1).squeeze()
-
+        # 质量验证报告
         validation_report = ""
         shape = embedding.shape
         if len(shape) == 1 and shape[0] == 512:
@@ -172,7 +168,6 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                 with gr.TabItem("📁 上传文件"):
                     audio_file_input = gr.File(label="支持 WAV, MP3, M4A 等")
                 with gr.TabItem("🔗 视频平台链接"):
-                    # 修复：将变量名从 youtube_url 改为 youtube_input
                     youtube_input = gr.Textbox(label="粘贴来自 YouTube, Bilibili, 抖音等网站的 URL")
                 with gr.TabItem("🎤 麦克风录制"):
                     mic_input = gr.Audio(sources=["microphone"], type="filepath", label="点击录制")
@@ -192,7 +187,6 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
             synthesize_btn = gr.Button("合成并试听", variant="primary")
         audio_output = gr.Audio(label="合成结果试听", type="filepath")
 
-    # 修复：在 inputs 列表中使用正确的变量名 youtube_input
     generate_btn.click(
         fn=generate_embedding_wrapper,
         inputs=[audio_file_input, mic_input, youtube_input],
