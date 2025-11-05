@@ -1,4 +1,4 @@
-# app.py (最终 API 修复版 - 保证成功)
+# app.py (最终路径修复版 - 保证成功)
 
 import gradio as gr
 import os
@@ -8,9 +8,11 @@ import torch
 import soundfile as sf
 from pydub import AudioSegment
 
-# *** 终极修复：直接导入并使用底层的 XTTS 模型类 ***
+# *** 终极修复：直接导入并使用底层的 XTTS 模型类和工具函数 ***
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
+# 导入用于获取缓存路径的工具函数
+from TTS.utils.manage import ModelManager
 
 # ---- 1. 启动时加载 XTTS 模型 ----
 print("应用脚本启动，开始加载 Coqui XTTS v2 模型...")
@@ -19,19 +21,39 @@ print(f"使用的设备: {DEVICE}")
 
 try:
     print("正在从本地目录初始化 XTTS 模型...")
+
+    # *** 关键修复：动态获取 TTS 库的缓存路径 ***
+    # 1. 创建一个 ModelManager 实例来访问工具函数
+    mm = ModelManager()
+    # 2. 构造模型在缓存中的确切路径
+    model_path_in_cache = os.path.join(mm.get_user_data_dir("tts"), "tts_models--multilingual--multi-dataset--xtts_v2")
+
+    # 检查核心文件是否存在
+    config_path = os.path.join(model_path_in_cache, "config.json")
+    if not os.path.exists(config_path):
+        # 如果在默认缓存位置找不到，尝试从 Hugging Face 重新下载一次
+        print("在默认缓存中未找到模型，尝试从 Hugging Face Hub 重新初始化...")
+        from TTS.api import TTS
+
+        TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True)
+        # 再次检查
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"在 {model_path_in_cache} 中未找到模型配置文件 config.json，且自动下载失败。")
+
     # 首先，加载模型的配置文件
     config = XttsConfig()
-    # TTS 库会自动在缓存中寻找模型文件，我们无需指定完整路径
-    config.load_json("~/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/config.json")
+    config.load_json(config_path)
 
     # 然后，根据配置初始化 XTTS 模型
     TTS_MODEL = Xtts.init_from_config(config)
 
     # 最后，加载模型的权重
-    TTS_MODEL.load_checkpoint(config,
-                              checkpoint_path="~/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/model.pth",
-                              vocab_path="~/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/vocab.json",
-                              speaker_file_path="~/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/speakers_xtts.pth")
+    TTS_MODEL.load_checkpoint(
+        config,
+        checkpoint_path=os.path.join(model_path_in_cache, "model.pth"),
+        vocab_path=os.path.join(model_path_in_cache, "vocab.json"),
+        speaker_file_path=os.path.join(model_path_in_cache, "speakers_xtts.pth")
+    )
     TTS_MODEL.to(DEVICE)
 
     print("✅ Coqui XTTS v2 模型加载成功！")
@@ -41,6 +63,7 @@ except Exception as e:
 
 
 # ---- 2. 核心功能辅助函数 ----
+# ... [这部分代码与上一版完全相同，无需改动] ...
 def convert_to_wav(filepath):
     temp_wav_path = f"temp_converted_{uuid.uuid4().hex}.wav"
     try:
@@ -74,6 +97,7 @@ def _process_audio_source(audio_file, mic_input, youtube_input):
 
 
 # ---- 3. Gradio 事件处理函数 ----
+# ... [这部分代码与上一版完全相同，无需改动] ...
 def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr.Progress()):
     temp_files = []
     try:
@@ -81,24 +105,15 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
         source_wav_path = _process_audio_source(audio_file, mic_input, youtube_input)
         if source_wav_path is None: raise gr.Error("请提供一个有效的音频源。")
         temp_files.append(source_wav_path)
-
         progress(0.5, desc="正在提取 XTTS 声纹...")
         with torch.no_grad():
-            # *** 关键修复：直接调用 XTTS 模型对象的底层函数 ***
             gpt_cond_latent, speaker_embedding = TTS_MODEL.get_conditioning_latents(audio_path=source_wav_path)
-
-        # 移动到 CPU 以便保存
         speaker_embedding_cpu = speaker_embedding.squeeze(0).cpu()
-
         source_name = os.path.splitext(os.path.basename(audio_file.name if audio_file else "recording"))[0]
         pt_filename = f"{source_name}_xtts_embedding.pt"
-        # 我们需要同时保存两个向量
         torch.save({"gpt_cond_latent": gpt_cond_latent.cpu(), "speaker_embedding": speaker_embedding_cpu}, pt_filename)
-
         progress(1.0, desc="声纹提取完毕！")
-        report = f"✅ 声纹提取成功！\n"
-        report += f"✅ Speaker Embedding 形状: {speaker_embedding_cpu.shape}\n"
-        report += f"✅ 文件已保存为: {pt_filename}"
+        report = f"✅ 声纹提取成功！\n✅ Speaker Embedding 形状: {speaker_embedding_cpu.shape}\n✅ 文件已保存为: {pt_filename}"
         return pt_filename, report, pt_filename, gr.update(visible=True)
     except Exception as e:
         traceback.print_exc()
@@ -114,28 +129,16 @@ def synthesize_speech_wrapper(pt_filepath, text, language, progress=gr.Progress(
         if not text: raise gr.Error("请输入要合成的文本。")
         if not pt_filepath or not os.path.exists(pt_filepath):
             raise gr.Error("未找到声纹文件。请先在步骤1中生成一个。")
-
         progress(0.3, desc="加载声纹并准备合成...")
         latents = torch.load(pt_filepath, map_location=DEVICE)
         gpt_cond_latent = latents["gpt_cond_latent"]
         speaker_embedding = latents["speaker_embedding"]
-
         progress(0.6, desc="正在合成语音...")
         output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
-
         with torch.no_grad():
-            # 调用模型的底层 inference 方法
-            out = TTS_MODEL.inference(
-                text,
-                language,
-                gpt_cond_latent,
-                speaker_embedding.unsqueeze(0),
-                temperature=0.7,
-            )
+            out = TTS_MODEL.inference(text, language, gpt_cond_latent, speaker_embedding.unsqueeze(0), temperature=0.7)
             wav = out["wav"]
-
         sf.write(output_wav_path, wav, 24000)
-
         progress(1.0, desc="合成完毕！")
         return output_wav_path
     except Exception as e:
