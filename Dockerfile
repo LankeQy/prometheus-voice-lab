@@ -25,8 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 3. 以 root 身份复制并安装 Python 依赖
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+# 使用 --upgrade 标志确保依赖按 requirements.txt 中的版本安装
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --upgrade -r requirements.txt
 
 # 4. 创建普通用户 appuser
 RUN groupadd -r appuser --gid=1000 && useradd -r -g appuser --uid=1000 --create-home appuser
