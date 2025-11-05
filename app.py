@@ -13,16 +13,18 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from TTS.utils.manage import ModelManager
 
-# ---- 1. 启动时加载 XTTS 模型 (已修复) ----
+# ---- 1. 启动时加载 XTTS 模型 (已修复元组问题) ----
 print("应用脚本启动，开始加载 Coqui XTTS v2 模型...")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
 try:
-    # 使用 ModelManager 查找或下载模型，并获取其路径
-    # 这是最稳健的方法，它会自动处理缓存，避免了硬编码路径和错误的 API 调用
+    # 使用 ModelManager 查找或下载模型
     mm = ModelManager()
-    model_path = mm.download_model("tts_models/multilingual/multi-dataset/xtts_v2")
+
+    # mm.download_model() 返回一个元组，我们只需要第一个元素（路径）
+    model_path_tuple = mm.download_model("tts_models/multilingual/multi-dataset/xtts_v2")
+    model_path = model_path_tuple[0]  # <--- 这里是关键修复！
 
     print(f"模型文件已定位/下载至: {model_path}")
 
@@ -162,10 +164,6 @@ def synthesize_speech_wrapper(pt_filepath, text, language, progress=gr.Progress(
                 gpt_cond_latent,
                 speaker_embedding,
                 temperature=0.7,
-                # length_penalty=1.0, # 可以根据需要调整这些参数
-                # repetition_penalty=10.0,
-                # top_k=50,
-                # top_p=0.85,
             )
             wav = out["wav"]
 
@@ -184,7 +182,6 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室 (多语言最终版)")
     gr.Markdown("一个支持中、日、英等多种语言的高质量在线声音克隆工具。由 Coqui XTTS v2 驱动。")
     gr.Markdown("✅ **环境已就绪**，XTTS 模型已加载完毕。")
-    # pt_file_state = gr.State(value=None) # 使用 gr.File 替代 State 来传递文件路径更稳健
     pt_file_for_synthesis = gr.File(visible=False)  # 一个隐藏的组件，用于传递文件对象
 
     with gr.Row():
