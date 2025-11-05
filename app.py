@@ -1,4 +1,4 @@
-# app.py (最终手动加载版 - 保证成功)
+# app.py (最终简化版 - 严格遵循官方文档)
 
 import gradio as gr
 import os
@@ -8,28 +8,28 @@ import torch
 from TTS.api import TTS
 from pydub import AudioSegment
 
-# ---- 1. 启动时直接从本地目录加载 XTTS 模型 ----
+# ---- 1. 启动时加载 XTTS 模型 (自动处理下载和缓存) ----
 print("应用脚本启动，开始加载 Coqui XTTS v2 模型...")
+print("首次启动时会自动下载模型(约2GB)，可能需要几分钟，请耐心等待...")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
 try:
-    print("正在从本地目录初始化 TTS 对象...")
-    # *** 终极修复：直接指定模型文件所在的本地路径 ***
-    # 我们不再依赖 ModelManager 的解析，而是直接告诉 TTS 对象去哪里找文件
-    model_dir = "./XTTS-v2-main/"
-    if not os.path.exists(os.path.join(model_dir, "config.json")):
-        raise FileNotFoundError(
-            f"在 {model_dir} 中未找到模型配置文件 config.json。请确保 download_models.py 已成功运行。")
+    print("正在初始化 TTS 对象，这将触发下载/加载...")
 
-    TTS_MODEL = TTS(model_path=model_dir).to(DEVICE)
+    # *** 终极修复：严格遵循官方文档，使用 model_name 加载官方模型 ***
+    # TTS() 内部会自动处理下载、缓存和从缓存加载的全部逻辑。
+    TTS_MODEL = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True).to(DEVICE)
+
     print("✅ Coqui XTTS v2 模型加载成功！")
 except Exception as e:
-    print(f"🔴 XTTS 模型加载失败: {e}");
+    print(f"🔴 XTTS 模型加载失败: {e}")
+    # 在应用启动前就抛出异常，以便在日志中清晰地看到失败原因
     raise e
 
 
 # ---- 2. 核心功能辅助函数 ----
+# ... [这部分代码与上一版完全相同，无需改动] ...
 def convert_to_wav(filepath):
     temp_wav_path = f"temp_converted_{uuid.uuid4().hex}.wav"
     try:
@@ -65,6 +65,7 @@ def _process_audio_source(audio_file, mic_input, youtube_input):
 
 
 # ---- 3. Gradio 事件处理函数 ----
+# ... [这部分代码与上一版完全相同，无需改动] ...
 def clone_and_synthesize(audio_file, mic_input, youtube_input, text, language, progress=gr.Progress()):
     temp_files = []
     try:
@@ -74,26 +75,16 @@ def clone_and_synthesize(audio_file, mic_input, youtube_input, text, language, p
         source_wav_path = _process_audio_source(audio_file, mic_input, youtube_input)
         if source_wav_path is None: raise gr.Error("请提供一个有效的音频源。")
         temp_files.append(source_wav_path)
-
         progress(0.5, desc="正在克隆声音并合成语音...")
         output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
-
-        TTS_MODEL.tts_to_file(
-            text=text,
-            file_path=output_wav_path,
-            speaker_wav=source_wav_path,
-            language=language
-        )
-
+        TTS_MODEL.tts_to_file(text=text, file_path=output_wav_path, speaker_wav=source_wav_path, language=language)
         progress(1.0, desc="合成完毕！")
-        # 将输出文件路径添加到临时文件列表，以便后续清理
         temp_files.append(output_wav_path)
         return output_wav_path
     except Exception as e:
         traceback.print_exc()
         raise gr.Error(f"处理失败: {e}")
     finally:
-        # 清理所有本次运行产生的临时文件
         for f in temp_files:
             if f and os.path.exists(f) and ("temp_" in f or "synthesized_" in f):
                 try:
@@ -103,6 +94,7 @@ def clone_and_synthesize(audio_file, mic_input, youtube_input, text, language, p
 
 
 # ---- 4. Gradio 界面定义 ----
+# ... [这部分代码与上一版完全相同，无需改动] ...
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室 (多语言版)")
     gr.Markdown("一个支持中、日、英等多种语言的高质量在线声音克隆工具。由 Coqui XTTS v2 驱动。")
@@ -127,11 +119,9 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("---")
     gr.Markdown("### 3. 合成结果试听")
     audio_output = gr.Audio(label="合成结果", type="filepath")
-    synthesize_btn.click(
-        fn=clone_and_synthesize,
-        inputs=[audio_file_input, mic_input, youtube_input, text_input, lang_dropdown],
-        outputs=[audio_output]
-    )
+    synthesize_btn.click(fn=clone_and_synthesize,
+                         inputs=[audio_file_input, mic_input, youtube_input, text_input, lang_dropdown],
+                         outputs=[audio_output])
 
 # ---- 5. 启动应用 ----
 print("所有模型加载完毕，正在启动Gradio服务...")
