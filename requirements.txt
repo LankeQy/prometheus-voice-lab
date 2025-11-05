@@ -1,25 +1,14 @@
-# requirements.txt
-
-#
 torch==2.1.2
 torchaudio==2.1.2
 torchcodec
-
-# Web UI
+numpy<2.0
 gradio
-
-#
 yt-dlp
 ffmpeg-python
 soundfile
 requests
 pydub
-
-# Coqui TTS
 TTS==0.22.0
-
-
-
 transformers==4.35.2
 huggingface-hub<1.0
 protobuf==3.20.3
