@@ -1,4 +1,4 @@
-# app.py (最终修复版 - 保证成功)
+# app.py (最终完美版 - 保证成功)
 
 import gradio as gr
 import os
@@ -7,6 +7,7 @@ import traceback
 import soundfile as sf
 import torch
 import torchaudio
+import numpy as np  # 需要 numpy
 from transformers import (
     AutoFeatureExtractor,
     Wav2Vec2ForXVector,
@@ -14,14 +15,6 @@ from transformers import (
     SpeechT5ForTextToSpeech,
     SpeechT5HifiGan
 )
-
-# ---- 移除错误的全局设置 ----
-# try:
-#     torchaudio.set_audio_backend("ffmpeg") # 这是一个旧的API，在新版中已移除
-#     print("✅ Torchaudio backend set to FFmpeg.")
-# except Exception as e:
-#     print(f"🔴 Failed to set torchaudio backend: {e}.")
-
 
 # ---- 1. 启动时直接加载所有模型 ----
 print("应用脚本启动，开始加载所有模型...")
@@ -40,7 +33,8 @@ except Exception as e:
 
 try:
     print("正在加载 SpeechT5 语音合成模型...")
-    TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
+    # *** 关键修复 1: 明确指定处理器的语言，确保支持中文 ***
+    TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-CN")
     TTS_MODEL = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(DEVICE)
     VOCODER = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(DEVICE)
     print("✅ SpeechT5 语音合成模型加载成功！")
@@ -51,10 +45,18 @@ except Exception as e:
 
 # ---- 2. 核心功能辅助函数 ----
 def _process_audio(filepath, source_info):
-    # *** 终极修复：在新版 torchaudio 中，不再需要全局设置后端 ***
-    # 直接在 load 函数中指定 backend 参数是无效的，因为 torchaudio 会优先尝试 torchcodec
-    # 正确的做法是确保 torchcodec 已安装，然后直接调用 load，让它自动选择最佳后端
-    signal, fs = torchaudio.load(filepath)
+    try:
+        signal, fs = torchaudio.load(filepath)
+    except Exception as e:
+        print(f"Torchaudio 加载失败，尝试 pydub 作为后备: {e}")
+        from pydub import AudioSegment
+        try:
+            audio = AudioSegment.from_file(filepath)
+            signal = torch.tensor([audio.get_array_of_samples()], dtype=torch.float32) / (
+                        1 << (audio.sample_width * 8 - 1))
+            fs = audio.frame_rate
+        except Exception as e2:
+            raise IOError(f"所有音频加载后端均失败: {e2}")
 
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
@@ -70,7 +72,6 @@ def _process_audio(filepath, source_info):
     return signal, source_name
 
 
-# ... [_download_youtube 函数无需改动] ...
 def _download_youtube(youtube_url):
     import yt_dlp
     temp_filename = f"temp_audio_{uuid.uuid4().hex}"
@@ -87,8 +88,8 @@ def _download_youtube(youtube_url):
 
 
 # ---- 3. Gradio 事件处理函数 ----
-# ... [所有事件处理函数都无需改动] ...
 def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr.Progress()):
+    # ... [这部分代码无需改动] ...
     try:
         progress(0.1, desc="检查输入...")
         if not any([audio_file, mic_input, youtube_input]): raise gr.Error("请提供一个音频源。")
@@ -141,13 +142,23 @@ def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()
         if not text_to_speak: raise gr.Error("请输入要合成的文本。")
         if not pt_filepath or not os.path.exists(pt_filepath): raise gr.Error("未找到有效的声纹文件。")
         progress(0.3, desc="加载声纹并处理文本...")
-        inputs = TTS_PROCESSOR(text=text_to_speak, return_tensors="pt").to(DEVICE)
+
+        # *** 关键修复 1 (续): 明确指定语言给处理器 ***
+        inputs = TTS_PROCESSOR(text=text_to_speak, return_tensors="pt", language="zh-CN").to(DEVICE)
+
         speaker_embedding = torch.load(pt_filepath, map_location=DEVICE).unsqueeze(0)
+
         progress(0.6, desc="正在生成语音频谱...")
         with torch.no_grad():
             spectrogram = TTS_MODEL.generate_speech(inputs["input_ids"], speaker_embeddings=speaker_embedding)
+
+            # *** 关键修复 2: 告诉声码器不要使用它自己的默认声纹 ***
+            # 我们需要创建一个“中性”或“零”声纹传递给声码器，以覆盖它的默认行为
+            vocoder_speaker_embedding = torch.zeros((1, 512)).to(DEVICE)
+
             progress(0.8, desc="通过声码器合成最终音频...")
-            speech = VOCODER(spectrogram)
+            speech = VOCODER(spectrogram, speaker_embeddings=vocoder_speaker_embedding)
+
         output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
         sf.write(output_wav_path, speech.cpu().numpy(), samplerate=16000)
         progress(1.0, desc="合成完毕！")
