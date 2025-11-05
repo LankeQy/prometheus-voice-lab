@@ -145,3 +145,23 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
             text_input = gr.Textbox(label="输入要合成的文本", value="你好，世界。こんにちは、世界。Hello world.", lines=4)
             lang_dropdown = gr.Dropdown(
                 choices=["zh-cn", "ja", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar", "hu",
+                         "ko"],
+                value="zh-cn",
+                label="选择语言"
+            )
+            synthesize_btn = gr.Button("克隆并合成语音", variant="primary")
+
+    gr.Markdown("---")
+    gr.Markdown("### 3. 合成结果试听")
+    audio_output = gr.Audio(label="合成结果", type="filepath")
+
+    synthesize_btn.click(
+        fn=clone_and_synthesize,
+        inputs=[audio_file_input, mic_input, youtube_input, text_input, lang_dropdown],
+        outputs=[audio_output]
+    )
+
+# ---- 5. 启动应用 ----
+print("所有模型加载完毕，正在启动Gradio服务...")
+demo.launch(server_name="0.0.0.0", server_port=7860)
+print("✅ Gradio 服务已启动。")
