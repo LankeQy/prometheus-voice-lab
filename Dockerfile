@@ -12,7 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     GRADIO_ANALYTICS_ENABLED=false \
     # 显式定义 Hugging Face 模型的缓存位置
-    HF_HOME=/app/huggingface_cache
+    HF_HOME=/app/huggingface_cache \
     COQUI_TOS_AGREED=1
 
 # 2. 以 root 身份安装系统依赖
