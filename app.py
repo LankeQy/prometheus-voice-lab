@@ -1,4 +1,4 @@
-# app.py (最终简化版 - 严格遵循官方文档)
+# app.py (最终确认版 - 采纳方案 A)
 
 import gradio as gr
 import os
@@ -8,18 +8,19 @@ import torch
 from TTS.api import TTS
 from pydub import AudioSegment
 
-# ---- 1. 启动时加载 XTTS 模型 (自动处理下载和缓存) ----
+# ---- 1. 启动时直接从 Hugging Face Hub 加载 XTTS 模型 ----
 print("应用脚本启动，开始加载 Coqui XTTS v2 模型...")
-print("首次启动时会自动下载模型(约2GB)，可能需要几分钟，请耐心等待...")
+print("首次启动时会自动从 Hugging Face Hub 下载模型(约2GB)，可能需要几分钟...")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
 try:
     print("正在初始化 TTS 对象，这将触发下载/加载...")
 
-    # *** 终极修复：严格遵循官方文档，使用 model_name 加载官方模型 ***
-    # TTS() 内部会自动处理下载、缓存和从缓存加载的全部逻辑。
-    TTS_MODEL = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True).to(DEVICE)
+    # *** 终极修复：采纳方案 A，使用 HF 仓库地址直接加载 ***
+    # TTS 库会自动处理下载、缓存和从缓存加载的全部逻辑。
+    # 注意：根据新版 API，即使是 HF 路径，参数名也应为 model_name
+    TTS_MODEL = TTS(model_name="coqui/XTTS-v2", progress_bar=True).to(DEVICE)
 
     print("✅ Coqui XTTS v2 模型加载成功！")
 except Exception as e:
@@ -29,8 +30,11 @@ except Exception as e:
 
 
 # ---- 2. 核心功能辅助函数 ----
-# ... [这部分代码与上一版完全相同，无需改动] ...
 def convert_to_wav(filepath):
+    """
+    使用 pydub 将任何音频格式转换为临时的 WAV 文件，
+    并将其标准化为 XTTS 所需的格式 (24000Hz, 单声道)。
+    """
     temp_wav_path = f"temp_converted_{uuid.uuid4().hex}.wav"
     try:
         audio = AudioSegment.from_file(filepath)
@@ -65,7 +69,6 @@ def _process_audio_source(audio_file, mic_input, youtube_input):
 
 
 # ---- 3. Gradio 事件处理函数 ----
-# ... [这部分代码与上一版完全相同，无需改动] ...
 def clone_and_synthesize(audio_file, mic_input, youtube_input, text, language, progress=gr.Progress()):
     temp_files = []
     try:
@@ -94,7 +97,6 @@ def clone_and_synthesize(audio_file, mic_input, youtube_input, text, language, p
 
 
 # ---- 4. Gradio 界面定义 ----
-# ... [这部分代码与上一版完全相同，无需改动] ...
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室 (多语言版)")
     gr.Markdown("一个支持中、日、英等多种语言的高质量在线声音克隆工具。由 Coqui XTTS v2 驱动。")
