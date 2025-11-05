@@ -16,7 +16,7 @@ soundfile
 requests
 pydub
 
+# Coqui TTS
+TTS
 #
-transformers
-sentencepiece
-datasets
+protobuf==3.20.3

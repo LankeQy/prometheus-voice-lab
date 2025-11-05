@@ -1,192 +1,131 @@
-# app.py (最终中文优化版)
+# app.py (XTTS 最终版)
 
 import gradio as gr
 import os
 import uuid
 import traceback
-import soundfile as sf
 import torch
 import torchaudio
-from transformers import (
-    AutoFeatureExtractor,
-    AutoModel,
-    SpeechT5Processor,
-    SpeechT5ForTextToSpeech,
-    SpeechT5HifiGan
-)
+from TTS.api import TTS
 from pydub import AudioSegment
 
-# ---- 1. 启动时直接加载所有模型 ----
-print("应用脚本启动，开始加载所有模型...")
-DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+# ---- 1. 启动时直接加载 XTTS 模型 ----
+print("应用脚本启动，开始加载 Coqui XTTS v2 模型...")
+print("这可能需要几分钟，请耐心等待 Gradio 界面出现...")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
 try:
-    print("正在加载中文声纹模型...")
-    embedding_model_id = "ehcalabres/wav2vec2-xlsr-53-chinese-vox"
-    EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id)
-    EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
-    # 这个模型的输出维度是 1024，我们需要一个线性层将其映射到 512
-    PROJECTION_LAYER = torch.nn.Linear(1024, 512).to(DEVICE)
-    print("✅ 中文声纹模型及映射层加载成功！")
+    print("正在加载 XTTS 模型到内存...")
+    # XTTS 会自动从缓存加载预下载的模型
+    TTS_MODEL = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(DEVICE)
+    print("✅ Coqui XTTS v2 模型加载成功！")
 except Exception as e:
-    print(f"🔴 声纹模型加载失败: {e}");
-    raise e
-
-try:
-    print("正在加载 SpeechT5 语音合成模型...")
-    TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-CN")
-    TTS_MODEL = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(DEVICE)
-    VOCODER = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(DEVICE)
-    print("✅ SpeechT5 语音合成模型加载成功！")
-except Exception as e:
-    print(f"🔴 SpeechT5 语音合成模型加载失败: {e}");
+    print(f"🔴 XTTS 模型加载失败: {e}");
     raise e
 
 
 # ---- 2. 核心功能辅助函数 ----
-def _process_audio(filepath, source_info):
+def convert_to_wav(filepath):
+    """使用 pydub 将任何音频格式转换为临时的 WAV 文件，并进行标准化处理"""
+    temp_wav_path = f"temp_{uuid.uuid4().hex}.wav"
     try:
-        signal, fs = torchaudio.load(filepath)
-    except Exception:
         audio = AudioSegment.from_file(filepath)
-        samples = torch.tensor(audio.get_array_of_samples()).float()
-        if audio.sample_width == 2:
-            samples /= 32768.0
-        elif audio.sample_width == 4:
-            samples /= 2147483648.0
-        signal = samples.unsqueeze(0)
-        fs = audio.frame_rate
-    if fs != 16000:
-        signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
-    if signal.shape[0] > 1:
-        signal = torch.mean(signal, dim=0)
-    signal = signal.squeeze(0)
-    source_name = os.path.splitext(os.path.basename(filepath))[0]
-    if source_info in ["YouTube", "microphone_temp"]:
-        try:
-            os.remove(filepath)
-        except Exception:
-            pass
-    return signal, source_name
+        # XTTS 需要 22050Hz 的采样率
+        audio = audio.set_frame_rate(22050).set_channels(1)
+        audio.export(temp_wav_path, format="wav")
+        return temp_wav_path
+    except Exception as e:
+        raise IOError(f"Pydub 转换音频失败: {e}")
 
 
-def _download_youtube(youtube_url):
-    import yt_dlp
-    temp_filename = f"temp_audio_{uuid.uuid4().hex}"
-    ydl_opts = {'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
-                'outtmpl': temp_filename, 'quiet': True, 'nocheckcertificate': True}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([youtube_url])
-    output_path = f"{temp_filename}.wav"
-    if not os.path.exists(output_path):
-        possible_files = [f for f in os.listdir('.') if f.startswith(temp_filename)]
-        if not possible_files: raise FileNotFoundError("yt-dlp下载后未找到任何音频文件。")
-        os.rename(possible_files[0], output_path)
-    return output_path
+def _process_audio_source(audio_file, mic_input, youtube_input):
+    """统一处理所有音频源，返回一个可用的 WAV 文件路径"""
+    if audio_file is not None:
+        return convert_to_wav(audio_file.name)
+    elif mic_input is not None:
+        return convert_to_wav(mic_input)
+    elif youtube_input:
+        import yt_dlp
+        temp_filename = f"temp_yt_{uuid.uuid4().hex}"
+        ydl_opts = {'format': 'bestaudio/best',
+                    'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
+                    'outtmpl': temp_filename, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_input])
+        downloaded_file = f"{temp_filename}.wav"
+        if not os.path.exists(downloaded_file):
+            # 兼容 yt-dlp 可能输出其他格式的情况
+            for f in os.listdir('.'):
+                if f.startswith(temp_filename):
+                    downloaded_file = f
+                    break
+        return convert_to_wav(downloaded_file)
+    return None
 
 
 # ---- 3. Gradio 事件处理函数 ----
-def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr.Progress()):
+def clone_and_synthesize(audio_file, mic_input, youtube_input, text, language, progress=gr.Progress()):
     try:
         progress(0.1, desc="检查输入...")
-        if not any([audio_file, mic_input, youtube_input]): raise gr.Error("请提供一个音频源。")
-        waveform, source_name = None, "audio"
-        progress(0.2, desc="处理音频源...")
-        if youtube_input:
-            filepath = _download_youtube(youtube_input)
-            waveform, source_name = _process_audio(filepath, "YouTube")
-        elif audio_file is not None:
-            waveform, source_name = _process_audio(audio_file.name, "file")
-        elif mic_input is not None:
-            waveform, source_name = _process_audio(mic_input, "microphone_temp")
-            source_name = "mic_recording"
-        if waveform is None: raise gr.Error("无法加载音频。")
+        if not text: raise gr.Error("请输入要合成的文本。")
+        source_wav_path = _process_audio_source(audio_file, mic_input, youtube_input)
+        if source_wav_path is None: raise gr.Error("请提供一个音频源。")
 
-        progress(0.6, desc="正在生成中文声纹...")
-        with torch.no_grad():
-            inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt").to(DEVICE)
-            # 提取 1024 维度的中文声纹
-            embedding_1024 = torch.mean(EMBEDDING_MODEL(**inputs).last_hidden_state, dim=1)
-            # 通过线性层映射到 512 维
-            embedding_512 = PROJECTION_LAYER(embedding_1024)
-            embedding = torch.nn.functional.normalize(embedding_512, dim=-1)
-            embedding = embedding.squeeze()
+        progress(0.5, desc="正在克隆声音并合成语音...")
+        output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
 
-        # 质量验证报告
-        validation_report = ""
-        shape = embedding.shape
-        if len(shape) == 1 and shape[0] == 512:
-            validation_report += f"✅ 形状正确: {shape}\n"
-        else:
-            validation_report += f"❌ 形状错误: {shape} (应为 512)\n"
-        norm = torch.linalg.norm(embedding).item()
-        if 0.99 < norm < 1.01:
-            validation_report += f"✅ 归一化成功 (模长 ≈ {norm:.4f})\n"
-        else:
-            validation_report += f"❌ 归一化失败 (模长 = {norm:.4f})\n"
+        # XTTS 的核心 API 调用，极其简洁
+        TTS_MODEL.tts_to_file(
+            text=text,
+            file_path=output_wav_path,
+            speaker_wav=source_wav_path,
+            language=language
+        )
 
-        pt_filename = f"{source_name}_embedding.pt"
-        torch.save(embedding, pt_filename)
-        progress(1.0, desc="完成！")
-        return pt_filename, validation_report, pt_filename, gr.update(visible=True)
+        # 清理临时文件
+        if os.path.exists(source_wav_path) and source_wav_path.startswith("temp_"):
+            os.remove(source_wav_path)
+
+        progress(1.0, desc="合成完毕！")
+        return output_wav_path
     except Exception as e:
         traceback.print_exc()
         raise gr.Error(f"处理失败: {e}")
 
 
-def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()):
-    try:
-        if not text_to_speak: raise gr.Error("请输入要合成的文本。")
-        if not pt_filepath or not os.path.exists(pt_filepath): raise gr.Error("未找到有效的声纹文件。")
-        progress(0.3, desc="加载声纹并处理文本...")
-        inputs = TTS_PROCESSOR(text=text_to_speak, return_tensors="pt").to(DEVICE)
-        speaker_embedding = torch.load(pt_filepath, map_location=DEVICE).unsqueeze(0)
-        progress(0.6, desc="正在生成语音频谱...")
-        with torch.no_grad():
-            spectrogram = TTS_MODEL.generate_speech(inputs["input_ids"], speaker_embeddings=speaker_embedding)
-            speech = VOCODER(spectrogram)
-        output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
-        sf.write(output_wav_path, speech.cpu().numpy(), samplerate=16000)
-        progress(1.0, desc="合成完毕！")
-        return output_wav_path
-    except Exception as e:
-        traceback.print_exc()
-        raise gr.Error(f"语音合成失败: {e}")
-
-
 # ---- 4. Gradio 界面定义 ----
-# [界面代码无需改动]
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室")
-    gr.Markdown("一个专业的在线声音克隆工具。")
-    gr.Markdown("✅ **环境已就绪**，所有模型均已加载完毕。")
-    pt_file_state = gr.State(value=None)
+    gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室 (多语言版)")
+    gr.Markdown("一个支持中、日、英三种语言的高质量在线声音克隆工具。由 Coqui XTTS v2 驱动。")
+    gr.Markdown("✅ **环境已就绪**，XTTS 模型已加载完毕。")
+
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("### 1. 提供声音源")
             with gr.Tabs():
                 with gr.TabItem("📁 上传文件"):
-                    audio_file_input = gr.File(label="支持 WAV, MP3, M4A 等")
+                    audio_file_input = gr.File(label="支持 WAV, MP3, M4A 等 (推荐5-15秒清晰人声)")
                 with gr.TabItem("🔗 视频平台链接"):
                     youtube_input = gr.Textbox(label="粘贴 URL")
                 with gr.TabItem("🎤 麦克风录制"):
                     mic_input = gr.Audio(sources=["microphone"], type="filepath", label="点击录制")
-            generate_btn = gr.Button("生成并验证声纹文件", variant="primary")
-        with gr.Column(scale=1):
-            gr.Markdown("### 2. 下载并验证结果")
-            pt_output = gr.File(label="下载声纹 (.pt 文件)")
-            validation_output = gr.Textbox(label="声纹质量报告", lines=5, interactive=False)
-    with gr.Group(visible=False) as tts_box:
-        gr.Markdown("---")
-        gr.Markdown("### 3. 即时试听克隆效果")
-        with gr.Row():
-            text_input = gr.Textbox(label="输入要合成的文本", value="你好，世界。这是一个由微软语音模型克隆的声音。")
-            synthesize_btn = gr.Button("合成并试听", variant="primary")
-        audio_output = gr.Audio(label="合成结果试听", type="filepath")
-    generate_btn.click(fn=generate_embedding_wrapper, inputs=[audio_file_input, mic_input, youtube_input],
-                       outputs=[pt_output, validation_output, pt_file_state, tts_box])
-    synthesize_btn.click(fn=synthesize_speech_wrapper, inputs=[text_input, pt_file_state], outputs=[audio_output])
+
+        with gr.Column(scale=2):
+            gr.Markdown("### 2. 输入文本并选择语言")
+            text_input = gr.Textbox(label="输入要合成的文本", value="你好，世界。こんにちは、世界。Hello world.", lines=4)
+            lang_dropdown = gr.Dropdown(choices=["zh-cn", "ja", "en"], value="zh-cn", label="选择语言")
+            synthesize_btn = gr.Button("克隆并合成语音", variant="primary")
+
+    gr.Markdown("---")
+    gr.Markdown("### 3. 合成结果试听")
+    audio_output = gr.Audio(label="合成结果", type="filepath")
+
+    synthesize_btn.click(
+        fn=clone_and_synthesize,
+        inputs=[audio_file_input, mic_input, youtube_input, text_input, lang_dropdown],
+        outputs=[audio_output]
+    )
 
 # ---- 5. 启动应用 ----
 print("所有模型加载完毕，正在启动Gradio服务...")
