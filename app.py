@@ -13,46 +13,45 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from TTS.utils.manage import ModelManager
 
-# ---- 1. 启动时加载 XTTS 模型 ----
+# ---- 1. 启动时加载 XTTS 模型 (已修复) ----
 print("应用脚本启动，开始加载 Coqui XTTS v2 模型...")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
 try:
-    print("正在从本地缓存初始化 XTTS 模型...")
-    # 动态获取 TTS 库的缓存路径
+    # 使用 ModelManager 查找或下载模型，并获取其路径
+    # 这是最稳健的方法，它会自动处理缓存，避免了硬编码路径和错误的 API 调用
     mm = ModelManager()
-    model_path_in_cache = os.path.join(mm.get_models_file_path(), "..",
-                                       "tts_models--multilingual--multi-dataset--xtts_v2")
+    model_path = mm.download_model("tts_models/multilingual/multi-dataset/xtts_v2")
 
-    config_path = os.path.join(model_path_in_cache, "config.json")
-    if not os.path.exists(config_path):
-        # 如果缓存找不到，就用高层 API 触发一次下载
-        print(f"在 {model_path_in_cache} 未找到模型，尝试从网络下载...")
-        from TTS.api import TTS
-
-        TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True)
-        # 再次检查
-        if not os.path.exists(config_path):
-            raise FileNotFoundError("模型文件下载失败或缓存路径不正确。")
+    print(f"模型文件已定位/下载至: {model_path}")
 
     # 使用底层 API 精确加载
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"在模型路径 {model_path} 中未找到 config.json。")
+
     config = XttsConfig()
     config.load_json(config_path)
     TTS_MODEL = Xtts.init_from_config(config)
-    TTS_MODEL.load_checkpoint(config, checkpoint_dir=model_path_in_cache, eval=True)
+    # 检查点目录就是模型所在的目录
+    TTS_MODEL.load_checkpoint(config, checkpoint_dir=model_path, eval=True)
     TTS_MODEL.to(DEVICE)
     print("✅ Coqui XTTS v2 模型通过底层 API 加载成功！")
 except Exception as e:
-    print(f"🔴 XTTS 模型加载失败: {e}");
+    print(f"🔴 XTTS 模型加载失败: {e}")
+    traceback.print_exc()  # 打印完整的堆栈跟踪信息，方便调试
     raise e
 
 
 # ---- 2. 核心功能辅助函数 ----
 def convert_to_wav(filepath):
-    temp_wav_path = f"temp_converted_{uuid.uuid4().hex}.wav"
+    # 为临时文件创建一个专门的目录，避免污染根目录
+    os.makedirs("temp", exist_ok=True)
+    temp_wav_path = os.path.join("temp", f"converted_{uuid.uuid4().hex}.wav")
     try:
         audio = AudioSegment.from_file(filepath)
+        # XTTS v2 推荐的采样率是 24000Hz
         audio = audio.set_frame_rate(24000).set_channels(1)
         audio.export(temp_wav_path, format="wav")
         return temp_wav_path
@@ -62,22 +61,39 @@ def convert_to_wav(filepath):
 
 def _process_audio_source(audio_file, mic_input, youtube_input):
     source_to_process = None
+    temp_files_to_clean = []
+
     if audio_file is not None:
         source_to_process = audio_file.name
     elif mic_input is not None:
         source_to_process = mic_input
     elif youtube_input:
         import yt_dlp
-        temp_filename = f"temp_yt_{uuid.uuid4().hex}"
-        ydl_opts = {'format': 'bestaudio/best',
-                    'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
-                    'outtmpl': temp_filename, 'quiet': True}
+        # 为临时文件创建一个专门的目录
+        os.makedirs("temp", exist_ok=True)
+        temp_filename_tmpl = os.path.join("temp", f"yt_{uuid.uuid4().hex}")
+
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
+            'outtmpl': temp_filename_tmpl,
+            'quiet': True
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_input])
-        downloaded_file = next((f for f in os.listdir('.') if f.startswith(temp_filename)), None)
-        if downloaded_file: source_to_process = downloaded_file
+
+        # yt-dlp 会在文件名后加上 .wav
+        downloaded_file = f"{temp_filename_tmpl}.wav"
+        if os.path.exists(downloaded_file):
+            source_to_process = downloaded_file
+            temp_files_to_clean.append(downloaded_file)
+
     if source_to_process and os.path.exists(source_to_process):
-        return convert_to_wav(source_to_process)
+        converted_path = convert_to_wav(source_to_process)
+        # 如果原始文件是临时下载的，转换后就可以删除了
+        for f in temp_files_to_clean:
+            if os.path.exists(f): os.remove(f)
+        return converted_path
     return None
 
 
@@ -98,7 +114,10 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
         gpt_cond_latent_cpu = gpt_cond_latent.squeeze(0).cpu()
         speaker_embedding_cpu = speaker_embedding.squeeze(0).cpu()
 
-        source_name = os.path.splitext(os.path.basename(audio_file.name if audio_file else "recording"))[0]
+        source_name = "voice"  # 使用一个通用名称
+        if audio_file:
+            source_name = os.path.splitext(os.path.basename(audio_file.name))[0]
+
         pt_filename = f"{source_name}_xtts_embedding.pt"
         # 将两个关键向量都保存在一个字典里
         torch.save({"gpt_cond_latent": gpt_cond_latent_cpu, "speaker_embedding": speaker_embedding_cpu}, pt_filename)
@@ -120,11 +139,15 @@ def synthesize_speech_wrapper(pt_filepath, text, language, progress=gr.Progress(
     try:
         progress(0.1, desc="检查输入...")
         if not text: raise gr.Error("请输入要合成的文本。")
-        if not pt_filepath or not os.path.exists(pt_filepath):
+        if not pt_filepath or not os.path.exists(
+                pt_filepath.name if hasattr(pt_filepath, 'name') else str(pt_filepath)):
             raise gr.Error("未找到声纹文件。请先在步骤1中生成一个。")
 
+        # 处理 Gradio File 组件可能返回临时对象的情况
+        actual_pt_path = pt_filepath.name if hasattr(pt_filepath, 'name') else pt_filepath
+
         progress(0.3, desc="加载声纹并准备合成...")
-        latents = torch.load(pt_filepath, map_location=DEVICE)
+        latents = torch.load(actual_pt_path, map_location=DEVICE)
         gpt_cond_latent = latents["gpt_cond_latent"].unsqueeze(0)
         speaker_embedding = latents["speaker_embedding"].unsqueeze(0)
 
@@ -139,6 +162,10 @@ def synthesize_speech_wrapper(pt_filepath, text, language, progress=gr.Progress(
                 gpt_cond_latent,
                 speaker_embedding,
                 temperature=0.7,
+                # length_penalty=1.0, # 可以根据需要调整这些参数
+                # repetition_penalty=10.0,
+                # top_k=50,
+                # top_p=0.85,
             )
             wav = out["wav"]
 
@@ -157,7 +184,9 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🚀 普罗米修斯旗舰声音实验室 (多语言最终版)")
     gr.Markdown("一个支持中、日、英等多种语言的高质量在线声音克隆工具。由 Coqui XTTS v2 驱动。")
     gr.Markdown("✅ **环境已就绪**，XTTS 模型已加载完毕。")
-    pt_file_state = gr.State(value=None)
+    # pt_file_state = gr.State(value=None) # 使用 gr.File 替代 State 来传递文件路径更稳健
+    pt_file_for_synthesis = gr.File(visible=False)  # 一个隐藏的组件，用于传递文件对象
+
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("### 1. 提供声音源并生成声纹")
@@ -171,6 +200,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
             gr.Markdown("### 2. 下载声纹文件")
             pt_output = gr.File(label="下载声纹文件")
             report_output = gr.Textbox(label="处理报告", lines=5, interactive=False)
+
     with gr.Group(visible=False) as tts_box:
         gr.Markdown("---")
         gr.Markdown("### 3. 使用声纹合成语音")
@@ -180,12 +210,20 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
             value="zh-cn", label="选择语言")
         synthesize_btn = gr.Button("使用生成的声纹合成", variant="primary")
         audio_output = gr.Audio(label="合成结果试听", type="filepath")
-    generate_btn.click(fn=generate_embedding_wrapper, inputs=[audio_file_input, mic_input, youtube_input],
-                       outputs=[pt_output, report_output, pt_file_state, tts_box])
-    synthesize_btn.click(fn=synthesize_speech_wrapper, inputs=[pt_file_state, text_input, lang_dropdown],
-                         outputs=[audio_output])
+
+    # 逻辑链: 生成按钮的输出 pt_output 直接作为合成按钮的输入 pt_file_for_synthesis
+    generate_btn.click(
+        fn=generate_embedding_wrapper,
+        inputs=[audio_file_input, mic_input, youtube_input],
+        outputs=[pt_output, report_output, pt_file_for_synthesis, tts_box]
+    )
+    synthesize_btn.click(
+        fn=synthesize_speech_wrapper,
+        inputs=[pt_file_for_synthesis, text_input, lang_dropdown],
+        outputs=[audio_output]
+    )
 
 # ---- 5. 启动应用 ----
 print("所有模型加载完毕，正在启动Gradio服务...")
-demo.launch(server_name="0.0.0.0", server_port=7860)
+demo.queue().launch(server_name="0.0.0.0", server_port=7860)
 print("✅ Gradio 服务已启动。")
