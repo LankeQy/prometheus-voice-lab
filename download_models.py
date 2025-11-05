@@ -1,21 +1,21 @@
-# download_models.py (终极可靠版)
+# download_models.py (最终中文优化版)
 from transformers import (
     SpeechT5Processor,
     SpeechT5ForTextToSpeech,
     SpeechT5HifiGan,
     AutoFeatureExtractor,
-    Wav2Vec2ForXVector
+    AutoModel
 )
 
-# --- 1. 下载最终选定的、公开的、输出512维的声纹模型 ---
-print("开始预下载最终声纹提取模型 (anton-l/wav2vec2-base-superb-sv)...")
+# --- 1. 下载您推荐的中文声纹提取模型 ---
+print("开始预下载中文声纹提取模型 (ehcalabres/wav2vec2-xlsr-53-chinese-vox)...")
 try:
-    embedding_model_id = "anton-l/wav2vec2-base-superb-sv"
+    embedding_model_id = "ehcalabres/wav2vec2-xlsr-53-chinese-vox"
     AutoFeatureExtractor.from_pretrained(embedding_model_id)
-    Wav2Vec2ForXVector.from_pretrained(embedding_model_id)
-    print("✅ 声纹提取模型下载完毕。")
+    AutoModel.from_pretrained(embedding_model_id)
+    print("✅ 中文声纹提取模型下载完毕。")
 except Exception as e:
-    print(f"🔴 声纹提取模型下载失败: {e}")
+    print(f"🔴 中文声纹提取模型下载失败: {e}")
     raise e
 
 # --- 2. 下载 Microsoft SpeechT5 语音合成相关模型 ---

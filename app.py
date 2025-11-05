@@ -1,4 +1,4 @@
-# app.py (最终正确版 - API 调用修复)
+# app.py (最终中文优化版)
 
 import gradio as gr
 import os
@@ -9,7 +9,7 @@ import torch
 import torchaudio
 from transformers import (
     AutoFeatureExtractor,
-    Wav2Vec2ForXVector,
+    AutoModel,
     SpeechT5Processor,
     SpeechT5ForTextToSpeech,
     SpeechT5HifiGan
@@ -22,22 +22,22 @@ DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"使用的设备: {DEVICE}")
 
 try:
-    print("正在加载最终声纹模型...")
-    embedding_model_id = "anton-l/wav2vec2-base-superb-sv"
-    EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id, trust_remote_code=True)
-    EMBEDDING_MODEL = Wav2Vec2ForXVector.from_pretrained(embedding_model_id, trust_remote_code=True).to(DEVICE)
-    print("✅ 声纹模型加载成功！")
+    print("正在加载中文声纹模型...")
+    embedding_model_id = "ehcalabres/wav2vec2-xlsr-53-chinese-vox"
+    EMBEDDING_EXTRACTOR = AutoFeatureExtractor.from_pretrained(embedding_model_id)
+    EMBEDDING_MODEL = AutoModel.from_pretrained(embedding_model_id).to(DEVICE)
+    # 这个模型的输出维度是 1024，我们需要一个线性层将其映射到 512
+    PROJECTION_LAYER = torch.nn.Linear(1024, 512).to(DEVICE)
+    print("✅ 中文声纹模型及映射层加载成功！")
 except Exception as e:
     print(f"🔴 声纹模型加载失败: {e}");
     raise e
 
 try:
     print("正在加载 SpeechT5 语音合成模型...")
-    # *** 关键修复 1: 在加载时就明确指定语言，确保支持中文 ***
-    TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-CN",
-                                                      trust_remote_code=True)
-    TTS_MODEL = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts", trust_remote_code=True).to(DEVICE)
-    VOCODER = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan", trust_remote_code=True).to(DEVICE)
+    TTS_PROCESSOR = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts", language="zh-CN")
+    TTS_MODEL = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(DEVICE)
+    VOCODER = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(DEVICE)
     print("✅ SpeechT5 语音合成模型加载成功！")
 except Exception as e:
     print(f"🔴 SpeechT5 语音合成模型加载失败: {e}");
@@ -45,25 +45,18 @@ except Exception as e:
 
 
 # ---- 2. 核心功能辅助函数 ----
-# ... [ _process_audio 和 _download_youtube 函数无需改动，它们已经是正确的了 ] ...
 def _process_audio(filepath, source_info):
     try:
         signal, fs = torchaudio.load(filepath)
-    except Exception as e:
-        print(f"Torchaudio 加载失败，尝试 pydub 作为后备: {e}")
-        try:
-            audio = AudioSegment.from_file(filepath)
-            # 转换为 PyTorch 张量并归一化
-            samples = torch.tensor(audio.get_array_of_samples()).float()
-            if audio.sample_width == 2:  # 16-bit
-                samples /= 32768.0
-            elif audio.sample_width == 4:  # 32-bit
-                samples /= 2147483648.0
-            signal = samples.unsqueeze(0)
-            fs = audio.frame_rate
-        except Exception as e2:
-            raise IOError(f"所有音频加载后端均失败: {e2}")
-
+    except Exception:
+        audio = AudioSegment.from_file(filepath)
+        samples = torch.tensor(audio.get_array_of_samples()).float()
+        if audio.sample_width == 2:
+            samples /= 32768.0
+        elif audio.sample_width == 4:
+            samples /= 2147483648.0
+        signal = samples.unsqueeze(0)
+        fs = audio.frame_rate
     if fs != 16000:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=16000)(signal)
     if signal.shape[0] > 1:
@@ -95,7 +88,6 @@ def _download_youtube(youtube_url):
 
 # ---- 3. Gradio 事件处理函数 ----
 def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr.Progress()):
-    # ... [这部分代码无需改动] ...
     try:
         progress(0.1, desc="检查输入...")
         if not any([audio_file, mic_input, youtube_input]): raise gr.Error("请提供一个音频源。")
@@ -111,23 +103,23 @@ def generate_embedding_wrapper(audio_file, mic_input, youtube_input, progress=gr
             source_name = "mic_recording"
         if waveform is None: raise gr.Error("无法加载音频。")
 
-        progress(0.6, desc="正在生成512维声纹...")
+        progress(0.6, desc="正在生成中文声纹...")
         with torch.no_grad():
             inputs = EMBEDDING_EXTRACTOR(waveform, sampling_rate=16000, return_tensors="pt").to(DEVICE)
-            embedding = EMBEDDING_MODEL(**inputs).embeddings
-            embedding = torch.nn.functional.normalize(embedding, dim=-1)
+            # 提取 1024 维度的中文声纹
+            embedding_1024 = torch.mean(EMBEDDING_MODEL(**inputs).last_hidden_state, dim=1)
+            # 通过线性层映射到 512 维
+            embedding_512 = PROJECTION_LAYER(embedding_1024)
+            embedding = torch.nn.functional.normalize(embedding_512, dim=-1)
             embedding = embedding.squeeze()
 
+        # 质量验证报告
         validation_report = ""
         shape = embedding.shape
         if len(shape) == 1 and shape[0] == 512:
             validation_report += f"✅ 形状正确: {shape}\n"
         else:
             validation_report += f"❌ 形状错误: {shape} (应为 512)\n"
-        if not (torch.isnan(embedding).any() or torch.isinf(embedding).any()):
-            validation_report += "✅ 数值有效 (无NaN或Inf)\n"
-        else:
-            validation_report += "❌ 向量中包含无效值\n"
         norm = torch.linalg.norm(embedding).item()
         if 0.99 < norm < 1.01:
             validation_report += f"✅ 归一化成功 (模长 ≈ {norm:.4f})\n"
@@ -148,20 +140,12 @@ def synthesize_speech_wrapper(text_to_speak, pt_filepath, progress=gr.Progress()
         if not text_to_speak: raise gr.Error("请输入要合成的文本。")
         if not pt_filepath or not os.path.exists(pt_filepath): raise gr.Error("未找到有效的声纹文件。")
         progress(0.3, desc="加载声纹并处理文本...")
-
         inputs = TTS_PROCESSOR(text=text_to_speak, return_tensors="pt").to(DEVICE)
         speaker_embedding = torch.load(pt_filepath, map_location=DEVICE).unsqueeze(0)
-
         progress(0.6, desc="正在生成语音频谱...")
         with torch.no_grad():
-            # *** 关键修复 2: generate_speech 不返回 vocoder_inputs，而是直接生成频谱 ***
-            # 实际上，声码器并不需要额外的声纹信息，主模型生成的频谱已经包含了音色
             spectrogram = TTS_MODEL.generate_speech(inputs["input_ids"], speaker_embeddings=speaker_embedding)
-
-            progress(0.8, desc="通过声码器合成最终音频...")
-            # *** 关键修复 2 (续): 调用声码器时，只传递频谱图 ***
             speech = VOCODER(spectrogram)
-
         output_wav_path = f"synthesized_{uuid.uuid4().hex}.wav"
         sf.write(output_wav_path, speech.cpu().numpy(), samplerate=16000)
         progress(1.0, desc="合成完毕！")

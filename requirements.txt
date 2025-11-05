@@ -3,7 +3,6 @@
 #
 torch
 torchaudio
-#
 torchcodec
 numpy<2.0
 
@@ -15,6 +14,7 @@ yt-dlp
 ffmpeg-python
 soundfile
 requests
+pydub
 
 #
 transformers
