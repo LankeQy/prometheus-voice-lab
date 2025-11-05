@@ -13,6 +13,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     GRADIO_ANALYTICS_ENABLED=false \
     # 显式定义 Hugging Face 模型的缓存位置
     HF_HOME=/app/huggingface_cache
+    COQUI_TOS_AGREED=1
 
 # 2. 以 root 身份安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
